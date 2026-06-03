@@ -7,19 +7,28 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function dbLoad(){
-  const { data, error } = await sb.from("combats").select("*").order("id");
-  if(error) throw new Error(error.message);
-  return (data||[]).map(r=>({
-    id:          r.id,
-    joueur:      r.joueur||"",
-    membreGuilde:r.joueur||"",
-    offense:     r.offense||"",
-    defense:     r.defense||"",
-    resultat:    r.resultat||"",
-    victoire:    r.victoire||"",
-    defaite:     r.defaite||"",
-    session:     r.session||"",
-    date:        r.date||"",
+  // Pagination automatique — charge tout sans limite de 1000
+  const PAGE = 1000;
+  let all = [], from = 0, done = false;
+  while(!done){
+    const { data, error } = await sb.from("combats")
+      .select("*").order("id").range(from, from + PAGE - 1);
+    if(error) throw new Error(error.message);
+    all = all.concat(data||[]);
+    if(!data || data.length < PAGE) done = true;
+    else from += PAGE;
+  }
+  return all.map(r=>({
+    id:           r.id,
+    joueur:       r.joueur||"",
+    membreGuilde: r.joueur||"",
+    offense:      r.offense||"",
+    defense:      r.defense||"",
+    resultat:     r.resultat||"",
+    victoire:     r.victoire||"",
+    defaite:      r.defaite||"",
+    session:      r.session||"",
+    date:         r.date||"",
     joueurAdverse: r.joueur_adverse||"",
     guildeAdverse: r.guilde_adverse||"",
   }));
