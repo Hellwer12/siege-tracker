@@ -8,11 +8,13 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function dbLoad(){
   // Pagination automatique — charge tout sans limite de 1000
-  const PAGE = 1000;
+  const PAGE = 2000;
   let all = [], from = 0, done = false;
   while(!done){
-    const { data, error } = await sb.from("combats")
-      .select("*").order("id").range(from, from + PAGE - 1);
+    const { data, error, count } = await sb.from("combats")
+      .select("*", { count: "exact" })
+      .order("id")
+      .range(from, from + PAGE - 1);
     if(error) throw new Error(error.message);
     all = all.concat(data||[]);
     if(!data || data.length < PAGE) done = true;
@@ -673,8 +675,8 @@ export default function App(){
   /* Chargement initial depuis Supabase */
   useEffect(()=>{
     dbLoad()
-      .then(rows=>{ setData(rows.length?rows:DEMO_DATA); setLoading(false); })
-      .catch(()=>{ setData(DEMO_DATA); setLoading(false); });
+      .then(rows=>{ setData(rows); setLoading(false); })
+      .catch(err=>{ console.error("dbLoad error:",err); setData([]); setLoading(false); });
   },[]);
 
   /* Rafraîchissement auto toutes les 60s pour les membres de la guilde */
