@@ -1,4 +1,52 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+/* ─── SUPABASE ───────────────────────────────────────────────────────────── */
+const SUPABASE_URL = "https://unzqcpszgzsedryrnsic.supabase.co";
+const SUPABASE_KEY = "sb_publishable_wGddOEZ9sZNWamxRZ46-9A_Gr9ardaS";
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function dbLoad(){
+  const { data, error } = await sb.from("combats").select("*").order("id");
+  if(error) throw new Error(error.message);
+  return (data||[]).map(r=>({
+    id:          r.id,
+    joueur:      r.joueur||"",
+    membreGuilde:r.joueur||"",
+    offense:     r.offense||"",
+    defense:     r.defense||"",
+    resultat:    r.resultat||"",
+    victoire:    r.victoire||"",
+    defaite:     r.defaite||"",
+    session:     r.session||"",
+    date:        r.date||"",
+    joueurAdverse: r.joueur_adverse||"",
+    guildeAdverse: r.guilde_adverse||"",
+  }));
+}
+
+async function dbReplace(rows){
+  // Vide la table puis insère les nouvelles lignes par batch de 500
+  const { error: delErr } = await sb.from("combats").delete().gte("id", 0);
+  if(delErr) throw new Error(delErr.message);
+  const batch = 500;
+  for(let i=0; i<rows.length; i+=batch){
+    const chunk = rows.slice(i, i+batch).map(r=>({
+      joueur:        r.joueur||"",
+      offense:       r.offense||"",
+      defense:       r.defense||"",
+      resultat:      r.resultat||"",
+      victoire:      r.victoire||"",
+      defaite:       r.defaite||"",
+      session:       r.session||"",
+      date:          r.date||"",
+      joueur_adverse: r.joueurAdverse||"",
+      guilde_adverse: r.guildeAdverse||"",
+    }));
+    const { error } = await sb.from("combats").insert(chunk);
+    if(error) throw new Error(error.message);
+  }
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    SW SIEGE TRACKER — Absolute Dark v5
@@ -605,12 +653,29 @@ function LivePanel({data,setData,liveGuild,setLiveGuild,onClose}){
 ══════════════════════════════════════════════════════════════════════════ */
 export default function App(){
   const [tab,setTab]=useState("dashboard");
-  const [data,setData]=useState(DEMO_DATA);
+  const [data,setData]=useState([]);
+  const [loading,setLoading]=useState(true);
   const [liveOpen,setLiveOpen]=useState(false);
   const [liveGuild,setLiveGuild]=useState("");
   const [importMsg,setImportMsg]=useState("");
   const fileRef=useRef();
   const [mouse,setMouse]=useState({x:-999,y:-999});
+
+  /* Chargement initial depuis Supabase */
+  useEffect(()=>{
+    dbLoad()
+      .then(rows=>{ setData(rows.length?rows:DEMO_DATA); setLoading(false); })
+      .catch(()=>{ setData(DEMO_DATA); setLoading(false); });
+  },[]);
+
+  /* Rafraîchissement auto toutes les 60s pour les membres de la guilde */
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      dbLoad().then(rows=>{ if(rows.length) setData(rows); }).catch(()=>{});
+    },60000);
+    return()=>clearInterval(t);
+  },[]);
+
   useEffect(()=>{
     const h=e=>setMouse({x:e.clientX,y:e.clientY});
     window.addEventListener("mousemove",h,{passive:true});
@@ -621,13 +686,16 @@ export default function App(){
     const file=e.target.files[0];if(!file)return;
     const sessionLabel=window.prompt("Nom de la session ?","Session-import")||"Import";
     const reader=new FileReader();
-    reader.onload=ev=>{
+    reader.onload=async ev=>{
       try{
         let parsed=file.name.endsWith(".json")?JSON.parse(ev.target.result):parseCSV(ev.target.result);
         if(!file.name.endsWith(".json"))parsed=parsed.map(r=>({...r,session:sessionLabel}));
-        setData(parsed.map((r,i)=>({...r,id:i})));
-        setImportMsg(`✓ ${parsed.length} combats chargés — « ${sessionLabel} »`);
-        setTimeout(()=>setImportMsg(""),4000);
+        setImportMsg("⏳ Envoi vers la base de données…");
+        await dbReplace(parsed);
+        const fresh=await dbLoad();
+        setData(fresh);
+        setImportMsg(`✓ ${parsed.length} combats partagés avec la guilde — « ${sessionLabel} »`);
+        setTimeout(()=>setImportMsg(""),5000);
       }catch(err){
         setImportMsg("⚠ "+err.message);
         setTimeout(()=>setImportMsg(""),6000);
@@ -636,6 +704,16 @@ export default function App(){
     reader.readAsText(file,"windows-1252");
     e.target.value="";
   };
+
+  if(loading) return (
+    <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",
+      justifyContent:"center",flexDirection:"column",gap:16,fontFamily:FONT}}>
+      <div style={{width:32,height:32,borderRadius:8,background:T.indigo,
+        display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:14,fontWeight:800,color:"#fff"}}>SW</div>
+      <div style={{fontSize:13,color:T.ink3}}>Chargement des données…</div>
+    </div>
+  );
 
   return <div style={{minHeight:"100vh",background:T.bg,color:T.ink1,fontFamily:FONT,
     position:"relative",overflow:"hidden"}}>
