@@ -546,6 +546,38 @@ function SearchWidget({data,liveGuild}){
   </div>;
 }
 
+
+/* ─── WORST DEFS CARD — compact, max 8 lignes par défaut ────────────────── */
+function WorstDefsCard({worstDefs,data,openDef,setOpenDef,worstN,setWorstN,maxN}){
+  const [showAll,setShowAll]=useState(false);
+  const shown=showAll?worstDefs:worstDefs.slice(0,8);
+  return <Card>
+    <SH title="Défenses qui nous battent"
+      sub="pondéré volume+taux · min 3 att · clic → offenses gagnantes"
+      right={<SliderControl value={worstN} onChange={setWorstN} max={maxN}/>}/>
+    {worstDefs.length===0
+      ?<Empty>Aucune défense (min 3 attaques sur cette fenêtre)</Empty>
+      :<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 24px"}}>
+          {shown.map(s=>(
+            <ExpandableDef key={s.name} s={s} data={data}
+              isOpen={openDef===s.name}
+              dimmed={openDef!==null&&openDef!==s.name}
+              onOpen={()=>setOpenDef(openDef===s.name?null:s.name)}/>
+          ))}
+        </div>
+        {worstDefs.length>8&&(
+          <button onClick={()=>setShowAll(v=>!v)}
+            style={{width:"100%",marginTop:8,padding:"5px",background:"none",
+              border:`1px solid ${T.line}`,borderRadius:6,
+              color:T.ink3,fontSize:11,cursor:"pointer",fontFamily:FONT}}>
+            {showAll?`▲ Réduire`:`▾ ${worstDefs.length-8} de plus`}
+          </button>
+        )}
+      </>}
+  </Card>;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    EXPANDABLE DEF — Défenses qui nous battent
 ══════════════════════════════════════════════════════════════════════════ */
@@ -562,30 +594,37 @@ function ExpandableDef({s,data,isOpen,onOpen,dimmed}){
       .sort((a,b)=>b.reliability-a.reliability);
   },[isOpen,data,s.name]);
 
+  // Couleur selon danger (rouge si >60% défaite ET volume significatif)
+  const dangerColor=s.lossRate>=65?T.red:s.lossRate>=45?T.amber:T.ink2;
+
   return <div style={{borderBottom:`1px solid ${T.line}`,
-    opacity:dimmed?0.30:1,filter:dimmed?"blur(0.3px)":"none",
-    transition:`opacity 0.18s ${EASE}`}}>
-    <div onClick={onOpen} style={{display:"flex",alignItems:"center",gap:8,
-      padding:"7px 2px",cursor:"pointer",userSelect:"none"}}>
+    opacity:dimmed?0.30:1,transition:`opacity 0.18s ${EASE}`}}>
+    <div onClick={onOpen} style={{display:"flex",alignItems:"center",gap:10,
+      padding:"6px 2px",cursor:"pointer",userSelect:"none"}}>
       <span style={{fontSize:9,color:T.ink3,width:12,flexShrink:0,textAlign:"center"}}>
         {isOpen?"▾":"▸"}</span>
+      {/* Nom */}
       <span style={{flex:1,fontSize:12,color:T.ink1,overflow:"hidden",
         textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
-      {/* Barre danger visuelle */}
-      <div style={{width:40,height:3,background:T.s3,borderRadius:2,flexShrink:0}}>
-        <div style={{width:`${Math.min(s.lossRate,100)}%`,height:"100%",
-          background:s.lossRate>=70?T.red:s.lossRate>=50?T.amber:T.green,
-          borderRadius:2}}/>
-      </div>
-      <span style={{fontSize:11,color:T.red,fontWeight:700,width:36,textAlign:"right",
-        fontVariantNumeric:"tabular-nums",flexShrink:0}}>{s.lossRate}%</span>
+      {/* Stats claires : V puis D puis total */}
+      <span style={{fontSize:11,color:T.green,fontWeight:600,
+        fontVariantNumeric:"tabular-nums",flexShrink:0}}>{s.wins}V</span>
+      <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>·</span>
+      <span style={{fontSize:11,color:T.red,fontWeight:600,
+        fontVariantNumeric:"tabular-nums",flexShrink:0}}>{s.losses}D</span>
       <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",
-        flexShrink:0,minWidth:40,textAlign:"right"}}>{s.losses}D/{s.total}</span>
+        flexShrink:0}}>/{s.total}</span>
+      {/* Badge % défaite coloré */}
+      <span style={{fontSize:11,fontWeight:700,color:dangerColor,
+        background:s.lossRate>=65?T.redDim:s.lossRate>=45?T.amberDim:"transparent",
+        borderRadius:4,padding:"1px 6px",fontVariantNumeric:"tabular-nums",flexShrink:0}}>
+        {s.lossRate}%✗
+      </span>
     </div>
     {isOpen&&(
       <div style={{margin:"2px 0 8px 20px",background:T.s2,borderRadius:8,padding:"8px 12px"}}>
         <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
-          Offenses gagnantes
+          Offenses gagnantes contre cette défense
         </div>
         {offenses.length===0
           ?<div style={{fontSize:11,color:T.ink3}}>Aucune victoire enregistrée</div>
@@ -594,7 +633,8 @@ function ExpandableDef({s,data,isOpen,onOpen,dimmed}){
               padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
               <span style={{flex:1,fontSize:11,color:T.ink2,overflow:"hidden",
                 textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
-              <VDScore wins={o.wins} losses={o.losses} total={o.total}/>
+              <span style={{fontSize:10,color:T.green,fontVariantNumeric:"tabular-nums"}}>{o.wins}V</span>
+              <span style={{fontSize:10,color:T.red,fontVariantNumeric:"tabular-nums"}}>{o.losses}D</span>
               <WRBadge rate={o.wr} small/>
             </div>
           ))}
@@ -933,8 +973,6 @@ function Dashboard({data,liveGuild}){
       .sort((a,b)=>b.danger-a.danger),
   [data,worstN]);
 
-  const defClusters=useMemo(()=>buildClusters(computeStats(data.slice(-worstN),"defense")),[data,worstN]);
-
   const handleDefClick=useCallback(item=>{
     const map={};
     data.filter(d=>d.defense===item.name).forEach(d=>{
@@ -1043,28 +1081,10 @@ function Dashboard({data,liveGuild}){
       </Card>
     </div>
 
-    {/* ── LIGNE 3 : Défenses qui nous battent — compact 2 colonnes ── */}
-    <Card>
-      <SH title="Défenses qui nous battent"
-        sub={`pondéré volume × taux · min 3 att · clic → offenses`}
-        right={<SliderControl value={worstN} onChange={setWorstN} max={data.length||2000}/>}/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 24px"}}>
-        {worstDefs.map(s=>(
-          <ExpandableDef key={s.name} s={s} data={data}
-            isOpen={openDef===s.name}
-            dimmed={openDef!==null&&openDef!==s.name}
-            onOpen={()=>setOpenDef(openDef===s.name?null:s.name)}/>
-        ))}
-      </div>
-      {worstDefs.length===0&&<Empty>Aucune défense (min 3 attaques)</Empty>}
-    </Card>
-
-    {/* ── LIGNE 4 : Clusters ── */}
-    <Card>
-      <SH title="Clusters de défenses"
-        sub={`${defClusters.length} archétypes · ≥2 monstres communs · clic pour variantes`}/>
-      <DefenseClusters clusters={defClusters} data={data} onDefClick={handleDefClick}/>
-    </Card>
+    {/* ── LIGNE 3 : Défenses qui nous battent ── */}
+    <WorstDefsCard worstDefs={worstDefs} data={data}
+      openDef={openDef} setOpenDef={setOpenDef} worstN={worstN} setWorstN={setWorstN}
+      maxN={data.length||2000}/>
 
   </div>;
 }
