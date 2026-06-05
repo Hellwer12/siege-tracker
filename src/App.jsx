@@ -7,19 +7,10 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function dbLoad(){
-  // Pagination automatique — charge tout sans limite de 1000
-  const PAGE = 2000;
-  let all = [], from = 0, done = false;
-  while(!done){
-    const { data, error, count } = await sb.from("combats")
-      .select("*", { count: "exact" })
-      .order("id")
-      .range(from, from + PAGE - 1);
-    if(error) throw new Error(error.message);
-    all = all.concat(data||[]);
-    if(!data || data.length < PAGE) done = true;
-    else from += PAGE;
-  }
+  // Utilise la fonction SQL get_all_combats() — pas de limite de lignes
+  const { data, error } = await sb.rpc("get_all_combats");
+  if(error) throw new Error(error.message);
+  const all = data || [];
   return all.map(r=>({
     id:           r.id,
     joueur:       r.joueur||"",
@@ -527,6 +518,94 @@ function SearchWidget({data,liveGuild}){
   </div>;
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MONSTER SEARCH — Chercher un monstre → compos offense/defense associées
+   Utile quand plusieurs défenses partagent le même monstre clé
+══════════════════════════════════════════════════════════════════════════ */
+function MonsterSearch({data}){
+  const [query,setQuery]=useState("");
+  const [mode,setMode]=useState("defense"); // chercher dans défenses ou offenses
+
+  // Extrait tous les monstres uniques depuis les compos
+  const allMonsters=useMemo(()=>{
+    const freq={};
+    const field=mode==="defense"?"defense":"offense";
+    data.forEach(d=>{
+      if(!d[field])return;
+      d[field].split(" ").forEach(word=>{
+        if(word.length>=3) freq[word]=(freq[word]||0)+1;
+      });
+    });
+    return Object.entries(freq).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+  },[data,mode]);
+
+  const results=useMemo(()=>{
+    const q=query.trim().toLowerCase();
+    if(!q)return[];
+    const field=mode==="defense"?"defense":"offense";
+    // Toutes les compos qui contiennent ce monstre
+    const map={};
+    data.filter(d=>d[field]&&d[field].toLowerCase().includes(q)).forEach(d=>{
+      const key=d[field];
+      if(!map[key])map[key]={name:key,wins:0,losses:0,total:0};
+      map[key].total++;
+      if(d.victoire)map[key].wins++;else map[key].losses++;
+    });
+    return Object.values(map)
+      .map(x=>({...x,wr:wr(x.wins,x.total)}))
+      .sort((a,b)=>b.total-a.total);
+  },[data,query,mode]);
+
+  return <div>
+    <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+      {/* Toggle défense / offense */}
+      <div style={{display:"flex",border:`1px solid ${T.line}`,borderRadius:8,overflow:"hidden",flexShrink:0}}>
+        {["defense","offense"].map(m=>(
+          <button key={m} onClick={()=>setMode(m)} style={{padding:"6px 12px",border:"none",
+            cursor:"pointer",fontSize:11,fontFamily:FONT,fontWeight:mode===m?600:400,
+            background:mode===m?T.amberDim:"transparent",
+            color:mode===m?T.amber:T.ink3,transition:`all 0.15s ${EASE}`}}>
+            {m==="defense"?"Dans défenses":"Dans offenses"}
+          </button>
+        ))}
+      </div>
+      <div style={{flex:1,minWidth:160,position:"relative"}}>
+        <Inp list="ms-lst" value={query} onChange={e=>setQuery(e.target.value)}
+          placeholder="Nom d'un monstre (ex: Tarnisha, Driana…)"/>
+        <datalist id="ms-lst">{allMonsters.slice(0,50).map(n=><option key={n} value={n}/>)}</datalist>
+      </div>
+      {query&&<GhostBtn onClick={()=>setQuery("")} color={T.ink3} small>✕</GhostBtn>}
+    </div>
+
+    {results.length>0&&(
+      <div>
+        <div style={{fontSize:10,color:T.ink3,marginBottom:6,textTransform:"uppercase",letterSpacing:1}}>
+          {results.length} compo{results.length>1?"s":""} {mode==="defense"?"défense":"offense"} contenant «{query}»
+        </div>
+        <div style={{maxHeight:280,overflowY:"auto"}}>
+          {results.map((r,i)=>(
+            <div key={r.name} style={{display:"flex",alignItems:"center",gap:8,
+              padding:"7px 2px",borderBottom:`1px solid ${T.line}`}}>
+              <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",
+                flexShrink:0,fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
+              <span style={{flex:1,fontSize:12,color:T.ink1,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap",padding:"0 6px"}}>{r.name}</span>
+              <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+              <WRBadge rate={r.wr}/>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+    {query.trim()&&results.length===0&&(
+      <div style={{padding:"10px 0",fontSize:12,color:T.ink3}}>
+        Aucune compo trouvée avec ce monstre
+      </div>
+    )}
+  </div>;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    SMART DOCK
 ══════════════════════════════════════════════════════════════════════════ */
@@ -752,10 +831,10 @@ export default function App(){
 ══════════════════════════════════════════════════════════════════════════ */
 function Dashboard({data,liveGuild}){
   /* curseur global partagé */
-  const [globalN,setGlobalN]=useState(150);
-  const [offN,setOffN]    =useState(150);
-  const [defN,setDefN]    =useState(150);
-  const [worstN,setWorstN]=useState(150);
+  const [globalN,setGlobalN]=useState(1250);
+  const [offN,setOffN]    =useState(1250);
+  const [defN,setDefN]    =useState(1250);
+  const [worstN,setWorstN]=useState(1250);
   const [openDef,setOpenDef]=useState(null);
   /* panel offense popup */
   const [panel,setPanel]=useState(null); // {title, items}
@@ -822,13 +901,26 @@ function Dashboard({data,liveGuild}){
       </div>
     </Card>
 
-    {/* Recherche + KPIs */}
+    {/* ── Contre-pick hero ── */}
     <div style={{display:"grid",gridTemplateColumns:"1fr 136px",gap:12,alignItems:"start"}}>
-      <Card>
-        <SH title="Contre-pick"
-          sub={liveGuild?`Mode Live · Guilde : ${liveGuild}`:"Défense adverse → meilleures offenses"}/>
+      <div style={{background:`linear-gradient(135deg,rgba(99,102,241,0.10) 0%,rgba(99,102,241,0.03) 100%)`,
+        border:`1.5px solid ${T.indigoMid}`,borderRadius:14,padding:"16px 18px",
+        boxShadow:T.indigoGlow}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{width:26,height:26,borderRadius:6,background:T.indigo,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>⚡</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,color:T.ink1,letterSpacing:-0.2}}>Contre-pick</div>
+            <div style={{fontSize:10,color:T.ink3,marginTop:1}}>
+              {liveGuild?`Mode Live · ${liveGuild}`:"Tape une défense adverse → meilleures offenses"}
+            </div>
+          </div>
+          {liveGuild&&<span style={{fontSize:10,color:T.amber,background:T.amberDim,
+            border:`1px solid ${T.amberMid}`,borderRadius:20,padding:"2px 9px",fontWeight:600,flexShrink:0}}>
+            ⚡ {liveGuild}</span>}
+        </div>
         <SearchWidget data={data} liveGuild={liveGuild}/>
-      </Card>
+      </div>
 
       {/* KPIs */}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -905,6 +997,22 @@ function Dashboard({data,liveGuild}){
           ))}
         </div>
         {worstDefs.length===0&&<Empty>Aucune défense sur cette fenêtre</Empty>}
+      </Card>
+
+      {/* Recherche par monstre — pleine largeur */}
+      <Card style={{gridColumn:"1 / -1"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{width:24,height:24,borderRadius:6,background:T.amberDim,
+            border:`1px solid ${T.amberMid}`,display:"flex",alignItems:"center",
+            justifyContent:"center",fontSize:12,flexShrink:0}}>🔎</div>
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:T.ink1}}>Recherche par monstre</div>
+            <div style={{fontSize:10,color:T.ink3,marginTop:1}}>
+              Tape un nom de monstre pour voir toutes les compos qui le contiennent
+            </div>
+          </div>
+        </div>
+        <MonsterSearch data={data}/>
       </Card>
 
     </div>
