@@ -606,6 +606,174 @@ function MonsterSearch({data}){
   </div>;
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DEFENSE CLUSTERING
+   Algorithme : deux compos sont dans le même cluster si elles partagent
+   au moins 2 monstres sur 3 (ou 2 sur 4 pour les compos 4 monstres).
+   Résultat : chaque cluster = un "archétype" de défense avec toutes ses
+   variantes agrégées. Trie par fréquence totale du cluster.
+══════════════════════════════════════════════════════════════════════════ */
+function buildClusters(defStats){
+  // Parse chaque compo en Set de monstres
+  const parsed = defStats.map(d => ({
+    ...d,
+    monsters: new Set(d.name.split(" ").filter(w => w.length >= 3))
+  }));
+
+  const clusterOf = new Array(parsed.length).fill(-1);
+  const clusters  = [];
+
+  for(let i = 0; i < parsed.length; i++){
+    if(clusterOf[i] >= 0) continue; // déjà assigné
+    // Nouveau cluster — seed = compo i
+    const cid = clusters.length;
+    clusterOf[i] = cid;
+    clusters.push({ members: [i], monsters: new Set(parsed[i].monsters) });
+  }
+
+  // Deux passes pour stabiliser les groupements
+  for(let pass = 0; pass < 2; pass++){
+    for(let i = 0; i < parsed.length; i++){
+      const mi = parsed[i].monsters;
+      let bestCid = -1, bestShared = 1; // seuil min = 2
+      for(let c = 0; c < clusters.length; c++){
+        if(clusterOf[i] === c) continue;
+        // Compter les monstres partagés avec le cluster
+        let shared = 0;
+        for(const m of mi) if(clusters[c].monsters.has(m)) shared++;
+        if(shared > bestShared){ bestShared = shared; bestCid = c; }
+      }
+      if(bestCid >= 0){
+        // Retire du cluster actuel si besoin
+        const old = clusterOf[i];
+        clusters[old].members = clusters[old].members.filter(x => x !== i);
+        // Ajoute au meilleur cluster
+        clusterOf[i] = bestCid;
+        clusters[bestCid].members.push(i);
+        for(const m of mi) clusters[bestCid].monsters.add(m);
+      }
+    }
+  }
+
+  // Construit les résultats — un objet par cluster non vide
+  return clusters
+    .filter(c => c.members.length > 0)
+    .map(c => {
+      const members = c.members.map(i => parsed[i]);
+      const totalAtt = members.reduce((s, m) => s + m.total, 0);
+      const totalWin = members.reduce((s, m) => s + m.wins, 0);
+      const totalLoss= members.reduce((s, m) => s + m.losses, 0);
+      // Nom du cluster = les monstres communs à tous les membres
+      const commonMonsters = [...members[0].monsters].filter(m =>
+        members.every(x => x.monsters.has(m))
+      );
+      const label = commonMonsters.length >= 2
+        ? commonMonsters.slice(0, 3).join(" · ")
+        : [...c.monsters].slice(0, 3).join(" · ");
+      return {
+        label,
+        total: totalAtt,
+        wins:  totalWin,
+        losses:totalLoss,
+        wr:    wr(totalWin, totalAtt),
+        lossRate: Math.round((totalLoss / totalAtt) * 100),
+        count: members.length,
+        members: members.sort((a,b) => b.total - a.total),
+      };
+    })
+    .filter(c => c.total >= 2)
+    .sort((a, b) => b.total - a.total);
+}
+
+/* ─── ClusterCard — un cluster accordéon ────────────────────────────────── */
+function ClusterCard({cluster, idx, isOpen, onToggle, dimmed, data, onDefClick}){
+  return (
+    <div style={{
+      borderBottom: `1px solid ${T.line}`,
+      opacity: dimmed ? 0.35 : 1,
+      filter: dimmed ? "blur(0.3px)" : "none",
+      transition: `opacity 0.2s ${EASE}, filter 0.2s ${EASE}`,
+    }}>
+      {/* Header du cluster */}
+      <div onClick={onToggle} style={{display:"flex",alignItems:"center",gap:8,
+        padding:"9px 2px",cursor:"pointer",userSelect:"none"}}>
+        <span style={{fontSize:9,color:T.ink3,width:12,textAlign:"center",flexShrink:0}}>
+          {isOpen ? "▾" : "▸"}
+        </span>
+        {/* Badge nb variantes */}
+        <span style={{fontSize:10,color:T.amber,background:T.amberDim,
+          border:`1px solid ${T.amberMid}`,borderRadius:4,
+          padding:"1px 6px",flexShrink:0,fontVariantNumeric:"tabular-nums"}}>
+          {cluster.count}v
+        </span>
+        <span style={{flex:1,fontSize:12,fontWeight:600,color:T.ink1,
+          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {cluster.label}
+        </span>
+        <VDScore wins={cluster.wins} losses={cluster.losses} total={cluster.total}/>
+        <WRBadge rate={cluster.wr}/>
+      </div>
+
+      {/* Variantes dépliées */}
+      {isOpen && (
+        <div style={{margin:"2px 0 10px 20px",display:"flex",flexDirection:"column",gap:4}}>
+          {cluster.members.map(m => {
+            const mLossRate = Math.round((m.losses / m.total) * 100);
+            return (
+              <div key={m.name}
+                onClick={()=>onDefClick&&onDefClick(m)}
+                style={{display:"flex",alignItems:"center",gap:8,
+                  background:T.s2,borderRadius:7,padding:"7px 10px",
+                  cursor:onDefClick?"pointer":"default",
+                  border:`1px solid ${T.line}`}}>
+                <span style={{flex:1,fontSize:11,color:T.ink2,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}</span>
+                <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",
+                  flexShrink:0}}>{m.total} att.</span>
+                <span style={{fontSize:11,color:m.lossRate>=60?T.red:T.ink3,
+                  fontWeight:m.lossRate>=60?700:400,fontVariantNumeric:"tabular-nums",
+                  flexShrink:0}}>{mLossRate}%✗</span>
+                <WRBadge rate={m.wr} small/>
+              </div>
+            );
+          })}
+          <div style={{fontSize:10,color:T.ink3,padding:"4px 2px"}}>
+            → Clic sur une variante pour voir les offenses gagnantes
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── DefenseClusters — wrapper avec état ouvert/fermé ───────────────────── */
+function DefenseClusters({clusters, data, onDefClick}){
+  const [openIdx, setOpenIdx] = useState(null);
+  const [visible, setVisible] = useState(10);
+  const shown = clusters.slice(0, visible);
+
+  return (
+    <div>
+      {shown.map((c, i) => (
+        <ClusterCard key={c.label + i} cluster={c} idx={i}
+          isOpen={openIdx === i}
+          dimmed={openIdx !== null && openIdx !== i}
+          onToggle={() => setOpenIdx(openIdx === i ? null : i)}
+          data={data}
+          onDefClick={onDefClick}/>
+      ))}
+      {clusters.length > visible && (
+        <button onClick={() => setVisible(v => v + 10)}
+          style={{width:"100%",marginTop:6,padding:"5px",background:"none",
+            border:"none",color:T.ink3,fontSize:11,cursor:"pointer",fontFamily:FONT}}>
+          ▾ {clusters.length - visible} clusters de plus
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    SMART DOCK
 ══════════════════════════════════════════════════════════════════════════ */
@@ -628,12 +796,9 @@ function SmartDock({tab,setTab,data,onImport,liveOpen,setLiveOpen,importMsg,file
       background:"rgba(10,10,14,0.80)",backdropFilter:"blur(24px) saturate(160%)",
       border:`1px solid ${T.line}`,borderRadius:40,padding:"4px 6px",
       boxShadow:"0 4px 32px rgba(0,0,0,0.7),0 1px 0 rgba(255,255,255,0.07) inset"}}>
-      <div style={{display:"flex",alignItems:"center",gap:7,padding:"4px 12px 4px 8px",
+      <div style={{padding:"4px 14px 4px 10px",
         borderRight:`1px solid ${T.line}`,marginRight:4,flexShrink:0}}>
-        <div style={{width:20,height:20,borderRadius:5,background:T.indigo,
-          display:"flex",alignItems:"center",justifyContent:"center",
-          fontSize:9,fontWeight:800,color:"#fff"}}>SW</div>
-        <span style={{fontSize:11,fontWeight:700,color:T.ink1,letterSpacing:-0.2}}>Siege</span>
+        <span style={{fontSize:12,fontWeight:700,color:T.ink1,letterSpacing:-0.3}}>Siege Tracker</span>
       </div>
       {TABS.map(t=>{
         const active=tab===t.id;
@@ -749,8 +914,6 @@ export default function App(){
   const [liveGuild,setLiveGuild]=useState("");
   const [importMsg,setImportMsg]=useState("");
   const fileRef=useRef();
-  const [mouse,setMouse]=useState({x:-999,y:-999});
-
   /* Chargement initial depuis Supabase */
   useEffect(()=>{
     dbLoad()
@@ -764,12 +927,6 @@ export default function App(){
       dbLoad().then(rows=>{ if(rows.length) setData(rows); }).catch(()=>{});
     },60000);
     return()=>clearInterval(t);
-  },[]);
-
-  useEffect(()=>{
-    const h=e=>setMouse({x:e.clientX,y:e.clientY});
-    window.addEventListener("mousemove",h,{passive:true});
-    return()=>window.removeEventListener("mousemove",h);
   },[]);
 
   const handleImport=e=>{
@@ -797,20 +954,14 @@ export default function App(){
 
   if(loading) return (
     <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",
-      justifyContent:"center",flexDirection:"column",gap:16,fontFamily:FONT}}>
-      <div style={{width:32,height:32,borderRadius:8,background:T.indigo,
-        display:"flex",alignItems:"center",justifyContent:"center",
-        fontSize:14,fontWeight:800,color:"#fff"}}>SW</div>
-      <div style={{fontSize:13,color:T.ink3}}>Chargement des données…</div>
+      justifyContent:"center",flexDirection:"column",gap:10,fontFamily:FONT}}>
+      <div style={{fontSize:13,color:T.ink3,letterSpacing:0.2}}>Chargement…</div>
     </div>
   );
 
   return <div style={{minHeight:"100vh",background:T.bg,color:T.ink1,fontFamily:FONT,
     position:"relative",overflow:"hidden"}}>
-    <div style={{position:"fixed",pointerEvents:"none",zIndex:0,width:400,height:400,
-      borderRadius:"50%",
-      background:"radial-gradient(circle,rgba(99,102,241,0.05) 0%,transparent 70%)",
-      left:mouse.x-200,top:mouse.y-200,transition:"left 0.1s,top 0.1s"}}/>
+
     <SmartDock tab={tab} setTab={setTab} data={data} onImport={handleImport}
       liveOpen={liveOpen} setLiveOpen={setLiveOpen} importMsg={importMsg} fileRef={fileRef}/>
     {liveOpen&&<div style={{paddingTop:72}}>
@@ -843,6 +994,8 @@ function Dashboard({data,liveGuild}){
   const totalWR=wr(totalW,data.length);
 
   const offStats =useMemo(()=>computeStats(data.slice(-offN),"offense"),[data,offN]);
+  const clusterN =Math.min(worstN, data.length);
+  const defClusters=useMemo(()=>buildClusters(computeStats(data.slice(-clusterN),"defense")),[data,clusterN]);
   const recentDef=useMemo(()=>computeStats(data.slice(-defN),"defense"),[data,defN]);
   const worstDefs=useMemo(()=>
     computeStats(data.slice(-worstN),"defense")
@@ -880,83 +1033,75 @@ function Dashboard({data,liveGuild}){
   /* Appliquer le curseur global à tous */
   const applyGlobal=()=>{setOffN(globalN);setDefN(globalN);setWorstN(globalN);};
 
-  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+  return <div style={{display:"flex",flexDirection:"column",gap:16}}>
 
     {/* Panel popup */}
     {panel&&<><Overlay onClick={()=>setPanel(null)}/><OffensesPanel title={panel.title} items={panel.items} onClose={()=>setPanel(null)}/></>}
 
-    {/* Curseur global */}
-    <Card style={{padding:"12px 16px"}}>
-      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-        <span style={{fontSize:11,fontWeight:600,color:T.ink2}}>Profondeur globale</span>
-        <SliderControl value={globalN} onChange={setGlobalN} max={data.length||300}/>
-        <button onClick={applyGlobal} style={{
-          background:T.indigoDim,border:`1px solid ${T.indigoMid}`,borderRadius:8,
-          color:T.indigo,fontSize:11,fontWeight:700,padding:"5px 14px",cursor:"pointer",fontFamily:FONT}}>
-          Appliquer à tous
-        </button>
-        <span style={{fontSize:10,color:T.ink3,marginLeft:4}}>
-          ou ajuster individuellement chaque carte ci-dessous
-        </span>
-      </div>
-    </Card>
+    {/* ── LIGNE 1 : Contre-pick (gauche large) + Stats (droite compacte) ── */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:14,alignItems:"start"}}>
 
-    {/* ── Contre-pick hero ── */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 136px",gap:12,alignItems:"start"}}>
-      <div style={{background:`linear-gradient(135deg,rgba(99,102,241,0.10) 0%,rgba(99,102,241,0.03) 100%)`,
+      {/* Contre-pick — hero card, pas de logo inutile */}
+      <div style={{background:`linear-gradient(160deg,rgba(99,102,241,0.11) 0%,rgba(99,102,241,0.03) 100%)`,
         border:`1.5px solid ${T.indigoMid}`,borderRadius:14,padding:"16px 18px",
         boxShadow:T.indigoGlow}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-          <div style={{width:26,height:26,borderRadius:6,background:T.indigo,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>⚡</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:700,color:T.ink1,letterSpacing:-0.2}}>Contre-pick</div>
-            <div style={{fontSize:10,color:T.ink3,marginTop:1}}>
-              {liveGuild?`Mode Live · ${liveGuild}`:"Tape une défense adverse → meilleures offenses"}
-            </div>
+        <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:14}}>
+          <div>
+            <span style={{fontSize:14,fontWeight:700,color:T.ink1}}>Contre-pick</span>
+            <span style={{fontSize:11,color:T.ink3,marginLeft:10}}>
+              {liveGuild?`Live · ${liveGuild}`:"défense adverse → meilleures offenses"}
+            </span>
           </div>
           {liveGuild&&<span style={{fontSize:10,color:T.amber,background:T.amberDim,
-            border:`1px solid ${T.amberMid}`,borderRadius:20,padding:"2px 9px",fontWeight:600,flexShrink:0}}>
+            border:`1px solid ${T.amberMid}`,borderRadius:20,padding:"2px 9px",fontWeight:600}}>
             ⚡ {liveGuild}</span>}
         </div>
         <SearchWidget data={data} liveGuild={liveGuild}/>
       </div>
 
-      {/* KPIs */}
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{background:T.s1,border:`1px solid ${T.line}`,borderRadius:10,padding:"12px"}}>
-          <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Global</div>
-          <div style={{fontSize:24,fontWeight:800,color:totalWR>=55?T.green:T.red,
-            fontVariantNumeric:"tabular-nums",lineHeight:1,letterSpacing:-0.5}}>{totalWR}%</div>
-          <div style={{fontSize:10,color:T.ink3,marginTop:2}}>Win Rate</div>
+      {/* Stats globales — colonne droite, compact */}
+      <div style={{display:"flex",flexDirection:"column",gap:6,minWidth:120}}>
+        {/* Profondeur globale — intégrée ici, sobre */}
+        <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,
+          padding:"10px 14px",marginBottom:2}}>
+          <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
+            Profondeur
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <SliderControl value={globalN} onChange={v=>{setGlobalN(v);setOffN(v);setDefN(v);setWorstN(v);}} max={data.length||300}/>
+          </div>
+          <div style={{fontSize:10,color:T.ink3,marginTop:4,fontVariantNumeric:"tabular-nums"}}>
+            {globalN} derniers combats
+          </div>
         </div>
-        <div style={{background:T.s1,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Score</div>
-          <div style={{display:"flex",flexDirection:"column",gap:3}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,color:T.green}}>✓ Victoires</span>
-              <span style={{fontSize:15,fontWeight:700,color:T.green,fontVariantNumeric:"tabular-nums"}}>{totalW}</span>
-            </div>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,color:T.red}}>✗ Défaites</span>
-              <span style={{fontSize:15,fontWeight:700,color:T.red,fontVariantNumeric:"tabular-nums"}}>{data.length-totalW}</span>
-            </div>
-            <div style={{borderTop:`1px solid ${T.line}`,paddingTop:4,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:10,color:T.ink3}}>Total</span>
-              <span style={{fontSize:13,fontWeight:600,color:T.ink2,fontVariantNumeric:"tabular-nums"}}>{data.length}</span>
-            </div>
+        {/* WR */}
+        <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 14px"}}>
+          <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Win Rate</div>
+          <div style={{fontSize:28,fontWeight:800,color:totalWR>=55?T.green:T.red,
+            fontVariantNumeric:"tabular-nums",lineHeight:1,letterSpacing:-1}}>{totalWR}%</div>
+        </div>
+        {/* V/D */}
+        <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <span style={{fontSize:11,color:T.green,fontWeight:600}}>✓ {totalW}V</span>
+            <span style={{fontSize:11,color:T.red,fontWeight:600}}>{data.length-totalW}D ✗</span>
+          </div>
+          <div style={{height:4,background:T.s4,borderRadius:2,overflow:"hidden"}}>
+            <div style={{width:`${totalWR}%`,height:"100%",
+              background:`linear-gradient(90deg,${T.green},${totalWR>=55?T.green:T.amber})`,
+              borderRadius:2,transition:"width 0.3s"}}/>
+          </div>
+          <div style={{fontSize:10,color:T.ink3,marginTop:4,fontVariantNumeric:"tabular-nums",textAlign:"center"}}>
+            {data.length} attaques
           </div>
         </div>
       </div>
     </div>
 
-    {/* Grille 2 colonnes */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-
-      {/* Top Offenses de la Guilde */}
+    {/* ── LIGNE 2 : Top Offenses + Top Défenses côte à côte ── */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <Card>
-        <SH title="Top Offenses de la Guilde"
-          sub="clic pour voir les défenses rencontrées"
+        <SH title="Top Offenses de la Guilde" sub="clic → défenses rencontrées"
           right={<SliderControl value={offN} onChange={setOffN} max={data.length||300}/>}/>
         <GhostList items={offStats} max={30} onItemClick={handleOffClick} renderItem={(item,i)=><>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
@@ -968,10 +1113,8 @@ function Dashboard({data,liveGuild}){
         </>}/>
       </Card>
 
-      {/* Top Défenses rencontrées */}
       <Card>
-        <SH title="Top Défenses rencontrées"
-          sub="clic pour voir les meilleures offenses"
+        <SH title="Top Défenses rencontrées" sub="clic → meilleures offenses contre"
           right={<SliderControl value={defN} onChange={setDefN} max={data.length||300}/>}/>
         <GhostList items={recentDef} max={30} onItemClick={handleDefClick} renderItem={(item,i)=><>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
@@ -982,22 +1125,31 @@ function Dashboard({data,liveGuild}){
             {item.total} att.</span>
         </>}/>
       </Card>
+    </div>
 
-      {/* Défenses qui nous battent — pleine largeur */}
-      <Card style={{gridColumn:"1 / -1"}}>
-        <SH title="Défenses qui nous battent (% de défaite)"
-          sub="classées par taux de défaite · clic → offenses gagnantes"
-          right={<SliderControl value={worstN} onChange={setWorstN} max={data.length||300}/>}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 28px"}}>
-          {worstDefs.map(s=>(
-            <ExpandableDef key={s.name} s={s} data={data}
-              isOpen={openDef===s.name}
-              dimmed={openDef!==null&&openDef!==s.name}
-              onOpen={()=>setOpenDef(openDef===s.name?null:s.name)}/>
-          ))}
-        </div>
-        {worstDefs.length===0&&<Empty>Aucune défense sur cette fenêtre</Empty>}
-      </Card>
+    {/* ── LIGNE 3 : Défenses qui nous battent — pleine largeur ── */}
+    <Card>
+      <SH title="Défenses qui nous battent (% défaite)"
+        sub="classées par taux de défaite · clic → offenses gagnantes"
+        right={<SliderControl value={worstN} onChange={setWorstN} max={data.length||300}/>}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 28px"}}>
+        {worstDefs.map(s=>(
+          <ExpandableDef key={s.name} s={s} data={data}
+            isOpen={openDef===s.name}
+            dimmed={openDef!==null&&openDef!==s.name}
+            onOpen={()=>setOpenDef(openDef===s.name?null:s.name)}/>
+        ))}
+      </div>
+      {worstDefs.length===0&&<Empty>Aucune défense sur cette fenêtre</Empty>}
+    </Card>
+
+    {/* ── LIGNE 4 : Clusters — pleine largeur ── */}
+    <Card>
+      <SH title="Clusters de défenses"
+        sub={`${defClusters.length} archétypes · compos partageant ≥2 monstres · clic pour variantes`}
+        right={<SliderControl value={clusterN} onChange={setWorstN} max={data.length||300}/>}/>
+      <DefenseClusters clusters={defClusters} data={data} onDefClick={handleDefClick}/>
+    </Card>
 
       {/* Recherche par monstre — pleine largeur */}
       <Card style={{gridColumn:"1 / -1"}}>
