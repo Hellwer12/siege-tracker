@@ -51,50 +51,64 @@ const FONT=`'SF Pro Display',-apple-system,BlinkMacSystemFont,'Helvetica Neue',s
 const EASE="cubic-bezier(0.4,0,0.2,1)";
 
 /* ══════════════════════════════════════════════════════════════════════════
-   MONSTER IMAGES — Swarfarm CDN mapping
-   Noms en anglais → URL image Swarfarm
-   Complétez au fur et à mesure avec vos monstres réels
+   MONSTER IMAGES — chargées depuis Supabase (table monsters)
+   Cache en mémoire : Map nom → image_url
 ══════════════════════════════════════════════════════════════════════════ */
-const MONSTER_IMG = {
-  // Format: "Nom tel qu'il apparaît dans vos compos": "url_image"
-  // Swarfarm: https://swarfarm.com/static/herders/images/monsters/
-  // Exemples — remplacez par vos vrais noms de monstres
-  "Amber":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0012_4_0.png",
-  "Tarnisha":  "https://swarfarm.com/static/herders/images/monsters/unit_icon_0198_4_0.png",
-  "Triton":    "https://swarfarm.com/static/herders/images/monsters/unit_icon_0165_4_0.png",
-  "Fiona":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0104_4_0.png",
-  "Driana":    "https://swarfarm.com/static/herders/images/monsters/unit_icon_0082_4_0.png",
-  "Orion":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0180_4_0.png",
-  "Fuuki":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0391_3_0.png",
-  "Berghild":  "https://swarfarm.com/static/herders/images/monsters/unit_icon_0438_1_0.png",
-  "Layla":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0198_1_0.png",
-  "Ian":       "https://swarfarm.com/static/herders/images/monsters/unit_icon_0158_4_0.png",
-  "Mihyang":   "https://swarfarm.com/static/herders/images/monsters/unit_icon_0152_4_0.png",
-  "Elucia":    "https://swarfarm.com/static/herders/images/monsters/unit_icon_0120_4_0.png",
-  "Loren":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0380_4_0.png",
-  "Mimirr":    "https://swarfarm.com/static/herders/images/monsters/unit_icon_0447_4_0.png",
-  "Seara":     "https://swarfarm.com/static/herders/images/monsters/unit_icon_0397_4_0.png",
-  "Jeogun":    "https://swarfarm.com/static/herders/images/monsters/unit_icon_0395_4_0.png",
-};
 
-// Retourne l'image d'un monstre ou null
-function monsterImg(name){
-  return MONSTER_IMG[name] || null;
+// Cache global chargé une seule fois au démarrage
+let MONSTER_CACHE = new Map(); // name → image_url
+let MONSTER_CACHE_LOADED = false;
+
+async function loadMonsterCache(){
+  if(MONSTER_CACHE_LOADED) return;
+  try{
+    const { data } = await sb.from("monsters").select("name,image_url");
+    if(data) data.forEach(m => MONSTER_CACHE.set(m.name, m.image_url));
+    MONSTER_CACHE_LOADED = true;
+  }catch(e){
+    console.warn("Monster cache load failed:", e.message);
+  }
 }
 
-// Chip monstre avec image si disponible
-function MonsterChip({name, size=20}){
-  const img = monsterImg(name);
-  return (
-    <span style={{display:"inline-flex",alignItems:"center",gap:4,
-      background:T.s3,borderRadius:5,padding:"2px 7px 2px 4px",fontSize:11,color:T.ink2}}>
+function monsterImg(name){
+  return MONSTER_CACHE.get(name) || null;
+}
+
+// Hook pour accéder au cache dans les composants
+function useMonsterImg(name){
+  const [url, setUrl] = useState(()=>MONSTER_CACHE.get(name)||null);
+  useEffect(()=>{
+    if(!url && MONSTER_CACHE_LOADED) setUrl(MONSTER_CACHE.get(name)||null);
+  },[name]);
+  return url;
+}
+
+// Chip monstre avec image depuis Supabase
+function MonsterChip({name, size=22}){
+  const img = useMonsterImg(name);
+  return(
+    <span style={{display:"inline-flex",alignItems:"center",gap:5,
+      background:T.s3,borderRadius:6,padding:"3px 8px 3px 4px",fontSize:11,color:T.ink2}}>
       {img
-        ? <img src={img} alt={name} style={{width:size,height:size,borderRadius:3,objectFit:"cover",flexShrink:0}}
+        ?<img src={img} alt={name}
+            style={{width:size,height:size,borderRadius:3,objectFit:"cover",flexShrink:0}}
             onError={e=>{e.target.style.display="none";}}/>
-        : <span style={{width:size,height:size,borderRadius:3,background:T.s4,display:"inline-block",flexShrink:0}}/>
+        :<span style={{width:size,height:size,borderRadius:3,background:T.s4,
+            display:"inline-block",flexShrink:0}}/>
       }
       {name}
     </span>
+  );
+}
+
+// Affiche les monstres d'une compo sous forme de chips
+function CompoChips({compo}){
+  if(!compo)return null;
+  const names=compo.split(" ").filter(w=>w.length>=3);
+  return(
+    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+      {names.map(n=><MonsterChip key={n} name={n}/>)}
+    </div>
   );
 }
 
@@ -329,13 +343,17 @@ function OffensesPanel({title,items,onClose}){
     </div>
     <div style={{overflowY:"auto",padding:"8px 0"}}>
       {items.map((o,i)=>(
-        <div key={o.name} style={{display:"flex",alignItems:"center",gap:10,
-          padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
-          <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
-          <span style={{flex:1,fontSize:12,color:T.ink1,overflow:"hidden",
-            textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
-          <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
-          <WRBadge rate={o.wr}/>
+        <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+            <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
+            <span style={{flex:1,fontSize:12,color:T.ink1,fontWeight:600,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
+            <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
+            <WRBadge rate={o.wr}/>
+          </div>
+          <div style={{paddingLeft:30}}>
+            <CompoChips compo={o.name}/>
+          </div>
         </div>
       ))}
     </div>
@@ -889,7 +907,11 @@ export default function App(){
   const fileRef=useRef();
 
   useEffect(()=>{
-    dbLoad().then(rows=>{setData(rows);setLoading(false);})
+    // Charge les données combat ET le cache images en parallèle
+    Promise.all([
+      dbLoad(),
+      loadMonsterCache(),
+    ]).then(([rows])=>{setData(rows);setLoading(false);})
       .catch(()=>{setData([]);setLoading(false);});
   },[]);
   useEffect(()=>{
