@@ -1,3 +1,4 @@
+cat > /mnt/user-data/outputs/siege_tracker.jsx << 'ENDOFFILE'
 // v7.0
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -1574,4 +1575,3 @@ function DetailCombat({data,setData}){
     )}
     <CombatCards rows={filtered.slice().reverse().slice(0,300)}/>
   </Card>;
-}
