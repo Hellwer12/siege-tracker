@@ -12,6 +12,7 @@ async function dbLoad(){
   return (data||[]).map(r=>({
     id:r.id, joueur:r.joueur||"", membreGuilde:r.joueur||"",
     offense:r.offense||"", defense:r.defense||"",
+    offenseRaw:r.offense||"", defenseRaw:r.defense||"",
     resultat:r.resultat||"", victoire:r.victoire||"", defaite:r.defaite||"",
     session:r.session||"", date:r.date||"",
     joueurAdverse:r.joueur_adverse||"", guildeAdverse:r.guilde_adverse||"",
@@ -56,29 +57,54 @@ const EASE="cubic-bezier(0.4,0,0.2,1)";
 ══════════════════════════════════════════════════════════════════════════ */
 
 // Cache global chargé une seule fois au démarrage
-let MONSTER_CACHE = new Map(); // name → image_url
+let MONSTER_CACHE = new Map(); // name → {image_url, element}
 let MONSTER_CACHE_LOADED = false;
 
 async function loadMonsterCache(){
   if(MONSTER_CACHE_LOADED) return;
   try{
-    const { data } = await sb.from("monsters").select("name,image_url");
-    if(data) data.forEach(m => MONSTER_CACHE.set(m.name, m.image_url));
+    const { data } = await sb.from("monsters").select("name,image_url,element");
+    if(data) data.forEach(m => MONSTER_CACHE.set(m.name, {
+      image_url: m.image_url,
+      element:   m.element||null,
+    }));
     MONSTER_CACHE_LOADED = true;
   }catch(e){
     console.warn("Monster cache load failed:", e.message);
   }
 }
 
+function monsterElement(name){
+  return MONSTER_CACHE.get(name)?.element || null;
+}
+
+// Éléments SW et leurs couleurs
+const ELEM_COLOR={
+  Fire:"#EF4444", Water:"#3B82F6", Wind:"#22C55E",
+  Light:"#EAB308", Dark:"#A855F7",
+};
+const ELEM_ICON={Fire:"🔥",Water:"💧",Wind:"💨",Light:"⭐",Dark:"🌑"};
+
+// Contre-élément : ce qui bat quoi
+const COUNTER_ELEM={Fire:"Water", Water:"Wind", Wind:"Fire"};
+// Même famille élémentaire (substituts potentiels)
+const SAME_ELEM_GROUP=[
+  ["Fire"],["Water"],["Wind"],["Light","Dark"],
+];
+function sameElemGroup(e1,e2){
+  if(!e1||!e2)return false;
+  return SAME_ELEM_GROUP.some(g=>g.includes(e1)&&g.includes(e2));
+}
+
 function monsterImg(name){
-  return MONSTER_CACHE.get(name) || null;
+  return MONSTER_CACHE.get(name)?.image_url || null;
 }
 
 // Hook pour accéder au cache dans les composants
 function useMonsterImg(name){
-  const [url, setUrl] = useState(()=>MONSTER_CACHE.get(name)||null);
+  const [url, setUrl] = useState(()=>MONSTER_CACHE.get(name)?.image_url||null);
   useEffect(()=>{
-    if(!url && MONSTER_CACHE_LOADED) setUrl(MONSTER_CACHE.get(name)||null);
+    if(!url && MONSTER_CACHE_LOADED) setUrl(MONSTER_CACHE.get(name)?.image_url||null);
   },[name]);
   return url;
 }
@@ -90,7 +116,7 @@ function MonsterChip({name, size=22}){
     <span style={{display:"inline-flex",alignItems:"center",gap:5,
       background:T.s3,borderRadius:6,padding:"3px 8px 3px 4px",fontSize:11,color:T.ink2}}>
       {img
-        ?<img src={img} alt={name}
+        ?<img src={img} alt={name} loading="lazy"
             style={{width:size,height:size,borderRadius:3,objectFit:"cover",flexShrink:0}}
             onError={e=>{e.target.style.display="none";}}/>
         :<span style={{width:size,height:size,borderRadius:3,background:T.s4,
@@ -101,16 +127,116 @@ function MonsterChip({name, size=22}){
   );
 }
 
-// Affiche les monstres d'une compo sous forme de chips
+// Extrait les noms de monstres depuis la version RAW (ordre original)
+// Algorithme : teste du plus long au plus court dans le cache Supabase
+function extractMonsterNames(compoRaw){
+  if(!compoRaw)return[];
+  const words = compoRaw.trim().split(/\s+/).filter(w=>w.length>=1);
+  const result = [];
+  let i = 0;
+  while(i < words.length){
+    let matched = false;
+    // Teste quadrigramme → trigramme → bigramme → mot seul
+    for(let len = Math.min(4, words.length-i); len >= 1; len--){
+      const candidate = words.slice(i, i+len).join(" ");
+      if(len === 1 || MONSTER_CACHE.has(candidate)){
+        result.push(candidate);
+        i += len;
+        matched = true;
+        break;
+      }
+    }
+    if(!matched){ i++; }
+  }
+  return result;
+}
+
+// Affiche les monstres d'une compo (version RAW) sous forme de chips
 function CompoChips({compo}){
   if(!compo)return null;
-  const names=compo.split(" ").filter(w=>w.length>=3);
+  const names = extractMonsterNames(compo);
   return(
     <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
       {names.map(n=><MonsterChip key={n} name={n}/>)}
     </div>
   );
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   i18n — Toggle FR / EN
+══════════════════════════════════════════════════════════════════════════ */
+const LANG={
+  fr:{
+    tabs:["Contre-pick","Analyse","Guilde","Détail combat"],
+    tabIds:["counterpick","analyse","guilde","combat"],
+    counterpick:"Contre-pick",
+    cpSub:"Défense adverse → meilleures offenses à jouer",
+    cpLive:"Live ·",
+    defMode:"Défense complète",
+    monMode:"Par monstre",
+    wrMin:"WR≥", attMin:"Att≥",
+    placeholder_compo:"Défense adverse (ex: Amber Tarnisha…)",
+    placeholder_mon:"Monstre(s) clés (ex: Tarnisha Amber)",
+    directResults:"Résultats directs",
+    directSub:"offenses validées contre cette défense exacte",
+    elemResults:"Variantes élémentaires",
+    elemSub:"défenses similaires par archétype · même élément ou contre-élément",
+    noResult:"Aucun résultat — essaie un nom partiel, baisse WR min ou Att min",
+    noElem:"Charge les images pour activer la recherche élargie",
+    others:"Autres options",
+    reliability:"Fiabilité",
+    import:"↑ Import",
+    live:"⚔ Live",
+    analyse:"Analyse",
+    topOff:"Top Offenses de la Guilde",
+    topDef:"Top Défenses rencontrées",
+    worstDef:"Défenses qui nous battent",
+    clusters:"Clusters de défenses",
+    depth:"Profondeur",
+    combats:"combats",
+    winRate:"Win Rate",
+    victories:"V", defeats:"D", attacks:"att.",
+    click_off:"clic → défenses rencontrées",
+    click_def:"clic → meilleures offenses",
+  },
+  en:{
+    tabs:["Counter-pick","Analysis","Guild","Combat log"],
+    tabIds:["counterpick","analyse","guilde","combat"],
+    counterpick:"Counter-pick",
+    cpSub:"Enemy defense → best offenses to play",
+    cpLive:"Live ·",
+    defMode:"Full defense",
+    monMode:"By monster",
+    wrMin:"WR≥", attMin:"Att≥",
+    placeholder_compo:"Enemy defense (e.g. Amber Tarnisha…)",
+    placeholder_mon:"Key monster(s) (e.g. Tarnisha Amber)",
+    directResults:"Direct results",
+    directSub:"offenses validated against this exact defense",
+    elemResults:"Elemental variants",
+    elemSub:"similar defenses by archetype · same or counter-element",
+    noResult:"No results — try a partial name, lower WR min or Att min",
+    noElem:"Load images to enable expanded search",
+    others:"Other options",
+    reliability:"Reliability",
+    import:"↑ Import",
+    live:"⚔ Live",
+    analyse:"Analysis",
+    topOff:"Guild Top Offenses",
+    topDef:"Top Defenses encountered",
+    worstDef:"Defenses that beat us",
+    clusters:"Defense clusters",
+    depth:"Depth",
+    combats:"combats",
+    winRate:"Win Rate",
+    victories:"W", defeats:"L", attacks:"att.",
+    click_off:"click → defenses encountered",
+    click_def:"click → best offenses",
+  },
+};
+// Context global de langue
+let CURRENT_LANG="fr";
+function t(key){ return LANG[CURRENT_LANG][key]||key; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    DEMO DATA
@@ -211,10 +337,15 @@ function parseCSV(rawText){
     const joueur=(mRaw&&mRaw!=="#NOM?"&&mRaw!=="")?mRaw:(jCell==="#NOM?"||jCell===""?"Inconnu":jCell);
     const resRaw=get(c,iR),vicVal=get(c,iV);
     const isW=resRaw==="Victoire"||vicVal==="1"||vicVal==="Oui";
+    // off/def = version triée (pour stats), offRaw/defRaw = version originale (pour images)
+    const offRaw=(get(c,iO)||"").trim();
+    const defRaw=(get(c,iD)||"").trim();
     result.push({id:result.length,joueur,membreGuilde:joueur,
       joueurAdverse:get(c,iNA)||get(c,iJA).split("\n")[0].trim(),
       guildeAdverse:get(c,iGA),resultat:isW?"Victoire":"Défaite",
-      offense:off,defense:def,victoire:isW?"Oui":"",defaite:isW?"":"Oui",
+      offense:off,defense:def,
+      offenseRaw:offRaw||off,defenseRaw:defRaw||def,
+      victoire:isW?"Oui":"",defaite:isW?"":"Oui",
       session:"Import",date:new Date().toISOString().split("T")[0]});
   }
   if(!result.length)throw new Error("Aucun combat valide trouvé");
@@ -241,6 +372,35 @@ function VDScore({wins,losses,total}){
     <span style={{color:T.red,fontWeight:600}}>{losses}D</span>
     <span style={{color:T.ink3,fontSize:10}}>/{t}</span>
   </span>;
+}
+
+// Wilson badge 3 niveaux : ✦✦✦ fiable · ✦✦ correct · ✦ insuffisant
+function WilsonBadge({wins,total}){
+  const score=wilson(wins,total);
+  const level=score>=0.55?"high":score>=0.30?"mid":"low";
+  const label=level==="high"?"✦✦✦ Fiable":level==="mid"?"✦✦ Correct":"✦ Limité";
+  const color=level==="high"?T.green:level==="mid"?T.amber:T.ink3;
+  return <span style={{fontSize:10,color,fontWeight:600,letterSpacing:0.2,flexShrink:0}}>
+    {label}
+  </span>;
+}
+
+// Bouton copie Discord — copie le nom de la compo dans le presse-papiers
+function CopyBtn({text}){
+  const [copied,setCopied]=useState(false);
+  const copy=e=>{
+    e.stopPropagation();
+    navigator.clipboard?.writeText(text).then(()=>{
+      setCopied(true);
+      setTimeout(()=>setCopied(false),1500);
+    });
+  };
+  return <button onClick={copy} title="Copier pour Discord"
+    style={{background:"none",border:`1px solid ${T.line}`,borderRadius:5,
+      padding:"2px 7px",color:copied?T.green:T.ink3,fontSize:10,cursor:"pointer",
+      fontFamily:FONT,flexShrink:0,transition:`color 0.2s`}}>
+    {copied?"✓":"📋"}
+  </button>;
 }
 
 function GhostBtn({children,onClick,color,small,style={}}){
@@ -290,11 +450,14 @@ const ROW={display:"flex",alignItems:"center",gap:8,padding:"7px 2px",borderBott
 
 function SliderControl({value,onChange,max}){
   return <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-    <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",minWidth:32,textAlign:"right"}}>
-      {value}</span>
     <input type="range" min={20} max={max||2000} step={10} value={value}
       onChange={e=>onChange(+e.target.value)}
-      style={{width:80,accentColor:T.indigo}}/>
+      style={{width:70,accentColor:T.indigo}}/>
+    <input type="number" min={20} max={max||2000} step={10} value={value}
+      onChange={e=>onChange(Math.min(+e.target.value,max||2000))}
+      style={{width:52,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
+        color:T.ink1,padding:"3px 6px",fontSize:11,outline:"none",
+        textAlign:"center",fontVariantNumeric:"tabular-nums"}}/>
   </div>;
 }
 
@@ -329,10 +492,10 @@ function GhostList({items,renderItem,onItemClick,max=30}){
 
 /* ─── OFFENSES PANEL (popup clic sur défense) ────────────────────────────── */
 function OffensesPanel({title,items,onClose}){
-  return <div style={{position:"fixed",top:"50%",left:"50%",
+  return <div className="panel-fixed" style={{position:"fixed",top:"50%",left:"50%",
     transform:"translate(-50%,-50%)",zIndex:2000,
     background:T.s1,border:`1px solid ${T.lineM}`,borderRadius:14,
-    padding:0,width:460,maxWidth:"92vw",maxHeight:"78vh",
+    padding:0,width:"min(520px,96vw)",maxHeight:"82vh",
     display:"flex",flexDirection:"column",
     boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
@@ -344,15 +507,17 @@ function OffensesPanel({title,items,onClose}){
     <div style={{overflowY:"auto",padding:"8px 0"}}>
       {items.map((o,i)=>(
         <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
             <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
             <span style={{flex:1,fontSize:12,color:T.ink1,fontWeight:600,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
+              textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{o.name}</span>
             <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
             <WRBadge rate={o.wr}/>
+            <WilsonBadge wins={o.wins} total={o.total}/>
+            <CopyBtn text={o.rawName||o.name}/>
           </div>
-          <div style={{paddingLeft:30}}>
-            <CompoChips compo={o.name}/>
+          <div style={{paddingLeft:28}}>
+            <CompoChips compo={o.rawName||o.name}/>
           </div>
         </div>
       ))}
@@ -368,22 +533,118 @@ function Overlay({onClick}){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SEARCH WIDGET — Contre-pick avec recherche par monstre intégrée
-   Deux modes :
-   • "compo" : tape une défense complète ou partielle
-   • "monstre" : tape un ou plusieurs noms de monstres (séparés par espace)
-     → trouve toutes les défenses qui les contiennent, puis les contre-picks
+   SEARCH WIDGET — Contre-pick redesigné
+   Section 1 : Résultats DIRECTS (DB exacte)
+   Section 2 : Variantes ÉLÉMENTAIRES (élargissement par archétype)
+   Distinction visuelle claire entre les deux
 ══════════════════════════════════════════════════════════════════════════ */
+
+// Calcule les offenses contre un ensemble de défenses
+function computeOffensesForDefs(scope,defSet,minWR,minUses){
+  const map={};
+  scope.filter(d=>defSet.has(d.defense)).forEach(d=>{
+    const n=d.offense;
+    if(!map[n])map[n]={name:n,rawName:d.offenseRaw||d.offense,wins:0,losses:0,total:0};
+    map[n].total++;if(d.victoire)map[n].wins++;else map[n].losses++;
+  });
+  return Object.values(map)
+    .map(x=>({...x,wr:wr(x.wins,x.total),reliability:wilson(x.wins,x.total)}))
+    .filter(x=>x.wr>=minWR&&x.total>=minUses)
+    .sort((a,b)=>b.reliability-a.reliability);
+}
+
+// Trouve les défenses dont les monstres ont des éléments similaires
+function findElemVariants(scope,directDefs,query){
+  if(!MONSTER_CACHE_LOADED||MONSTER_CACHE.size===0)return[];
+  // Extraire les monstres de la requête et leurs éléments
+  const qWords=query.trim().split(/\s+/).filter(w=>w.length>=2);
+  const qElems=qWords.map(w=>monsterElement(w)).filter(Boolean);
+  if(!qElems.length)return[];
+
+  // Pour chaque défense directe, extraire les éléments de ses monstres
+  const directElemsSet=new Set();
+  directDefs.forEach(def=>{
+    def.split(" ").forEach(w=>{ const e=monsterElement(w); if(e)directElemsSet.add(e); });
+  });
+  const directElems=[...directElemsSet];
+  if(!directElems.length)return[];
+
+  // Trouver les contre-éléments et éléments du même groupe
+  const relevantElems=new Set(directElems);
+  directElems.forEach(e=>{
+    if(COUNTER_ELEM[e])relevantElems.add(COUNTER_ELEM[e]);
+    SAME_ELEM_GROUP.forEach(g=>{ if(g.includes(e))g.forEach(x=>relevantElems.add(x)); });
+  });
+
+  // Défenses variantes : contiennent des monstres avec ces éléments
+  // mais ne sont PAS dans les résultats directs
+  const variantDefs=new Set();
+  scope.forEach(d=>{
+    if(directDefs.has(d.defense))return;
+    const defWords=d.defense.split(" ").filter(w=>w.length>=2);
+    const defElems=defWords.map(w=>monsterElement(w)).filter(Boolean);
+    // Vérifier si au moins N monstres communs par nom
+    const qWordSet=new Set(qWords.map(w=>w.toLowerCase()));
+    const commonNames=defWords.filter(w=>qWordSet.has(w.toLowerCase())).length;
+    if(commonNames>=1&&defElems.some(e=>relevantElems.has(e))){
+      variantDefs.add(d.defense);
+    }
+  });
+  return variantDefs;
+}
+
+// Carte résultat offense (réutilisée)
+function OffenseCard({r,idx,histWarning,medals,isVariant}){
+  const colors=isVariant
+    ?{border:T.amberMid,bg:"rgba(245,158,11,0.06)",shadow:"none"}
+    :{border:idx===0?T.indigoMid:T.line,bg:idx===0?"rgba(99,102,241,0.06)":T.s2,
+      shadow:idx===0?T.indigoGlow:"none"};
+  return(
+    <div style={{background:colors.bg,border:`1px solid ${colors.border}`,
+      boxShadow:colors.shadow,borderRadius:10,padding:"10px 12px",
+      position:"relative"}}>
+      {isVariant&&(
+        <div style={{position:"absolute",top:8,right:8,fontSize:9,fontWeight:700,
+          color:T.amber,background:T.amberDim,borderRadius:4,padding:"1px 6px",
+          letterSpacing:0.5,textTransform:"uppercase"}}>
+          {ELEM_ICON[r.mainElem]||"~"} Variante
+        </div>
+      )}
+      <div style={{fontSize:12,marginBottom:3,color:T.ink3}}>{medals[idx]||`#${idx+1}`}</div>
+      <div style={{fontSize:12,fontWeight:600,color:T.ink1,marginBottom:8,
+        lineHeight:1.35,paddingRight:isVariant?48:0}}>{r.name}</div>
+      <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+        <WRBadge rate={r.wr}/>
+        <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+        <WilsonBadge wins={r.wins} total={r.total}/>
+      </div>
+      {idx===0&&histWarning&&(
+        <div style={{fontSize:10,color:T.red,padding:"2px 6px",
+          background:T.redDim,borderRadius:4,marginBottom:4}}>{histWarning}</div>
+      )}
+      <div style={{display:"flex",justifyContent:"flex-end"}}>
+        <CopyBtn text={r.rawName||r.name}/>
+      </div>
+    </div>
+  );
+}
+
 function SearchWidget({data,liveGuild}){
   const [query,setQuery]=useState("");
-  const [searchMode,setSearchMode]=useState("compo"); // "compo" | "monstre"
-  const [minWR,setMinWR]=useState(60);
+  const [searchMode,setSearchMode]=useState("compo");
+  const [minWR,setMinWR]=useState(55);
   const [minUses,setMinUses]=useState(2);
 
-  // Autocomplétion compo — triée par volume
   const allDefs=useMemo(()=>computeStats(data,"defense").map(x=>x.name),[data]);
+  const allMonsters=useMemo(()=>{
+    const freq={};
+    data.forEach(d=>{
+      if(!d.defense)return;
+      d.defense.split(" ").forEach(w=>{if(w.length>=3)freq[w]=(freq[w]||0)+1;});
+    });
+    return Object.entries(freq).sort((a,b)=>b[1]-a[1]).map(x=>x[0]).slice(0,60);
+  },[data]);
 
-  // Prédiction inline (mode compo, premier mot seulement)
   const prediction=useMemo(()=>{
     const q=query.trim();
     if(!q||searchMode!=="compo")return null;
@@ -394,73 +655,56 @@ function SearchWidget({data,liveGuild}){
     return top&&top[0]!==q?top[0]:null;
   },[data,query,searchMode]);
 
-  // Scope filtré guilde live
   const scope=useMemo(()=>liveGuild?data.filter(d=>d.guildeAdverse===liveGuild):data,[data,liveGuild]);
 
-  // Calcul des résultats selon le mode
-  const results=useMemo(()=>{
+  // ── Résultats DIRECTS ──────────────────────────────────────────────────
+  const {directDefs,directResults}=useMemo(()=>{
     const q=query.trim().toLowerCase();
-    if(!q)return[];
-
+    if(!q)return{directDefs:new Set(),directResults:[]};
+    let defs;
     if(searchMode==="compo"){
-      // Cherche la défense et retourne les offenses
-      const map={};
-      scope.filter(d=>d.defense.toLowerCase().includes(q)).forEach(d=>{
-        const n=d.offense;if(!map[n])map[n]={name:n,wins:0,losses:0,total:0};
-        map[n].total++;if(d.victoire)map[n].wins++;else map[n].losses++;
-      });
-      return Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total),reliability:wilson(x.wins,x.total)}))
-        .filter(x=>x.wr>=minWR&&x.total>=minUses)
-        .sort((a,b)=>b.reliability-a.reliability);
+      defs=new Set(scope.filter(d=>d.defense.toLowerCase().includes(q)).map(d=>d.defense));
     } else {
-      // Mode monstre : cherche toutes les défenses contenant CE(S) monstre(s)
       const words=q.split(/\s+/).filter(w=>w.length>=2);
-      if(!words.length)return[];
-      // Défenses qui contiennent TOUS les mots recherchés
-      const matchingDefs=new Set(
-        scope.filter(d=>words.every(w=>d.defense.toLowerCase().includes(w))).map(d=>d.defense)
-      );
-      if(!matchingDefs.size)return[];
-      // Offenses contre ces défenses
-      const map={};
-      scope.filter(d=>matchingDefs.has(d.defense)).forEach(d=>{
-        const n=d.offense;if(!map[n])map[n]={name:n,wins:0,losses:0,total:0,defs:new Set()};
-        map[n].total++;map[n].defs.add(d.defense);
-        if(d.victoire)map[n].wins++;else map[n].losses++;
-      });
-      return Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total),reliability:wilson(x.wins,x.total),
-        defCount:x.defs.size}))
-        .filter(x=>x.wr>=minWR&&x.total>=minUses)
-        .sort((a,b)=>b.reliability-a.reliability);
+      defs=new Set(scope.filter(d=>words.every(w=>d.defense.toLowerCase().includes(w))).map(d=>d.defense));
     }
+    return{directDefs:defs,directResults:computeOffensesForDefs(scope,defs,minWR,minUses)};
   },[scope,query,searchMode,minWR,minUses]);
 
-  // Monstres fréquents pour datalist
-  const allMonsters=useMemo(()=>{
-    const freq={};
-    data.forEach(d=>{
-      if(!d.defense)return;
-      d.defense.split(" ").forEach(w=>{if(w.length>=3)freq[w]=(freq[w]||0)+1;});
+  // ── Résultats VARIANTES ÉLÉMENTAIRES ──────────────────────────────────
+  const elemResults=useMemo(()=>{
+    const q=query.trim();
+    if(!q||!MONSTER_CACHE_LOADED)return[];
+    const variantDefs=findElemVariants(scope,directDefs,q);
+    if(!variantDefs.size)return[];
+    const results=computeOffensesForDefs(scope,variantDefs,minWR,minUses);
+    // Exclure ceux déjà dans directResults
+    const directNames=new Set(directResults.map(r=>r.name));
+    return results.filter(r=>!directNames.has(r.name)).map(r=>{
+      // Trouver l'élément dominant des variantes
+      const elems={};
+      [...variantDefs].forEach(def=>{
+        def.split(" ").forEach(w=>{const e=monsterElement(w);if(e)elems[e]=(elems[e]||0)+1;});
+      });
+      const mainElem=Object.entries(elems).sort((a,b)=>b[1]-a[1])[0]?.[0];
+      return{...r,mainElem};
     });
-    return Object.entries(freq).sort((a,b)=>b[1]-a[1]).map(x=>x[0]).slice(0,60);
-  },[data]);
+  },[scope,query,directDefs,directResults,minWR,minUses]);
 
-  // Warning historique vs guilde live
   const histWarning=useMemo(()=>{
-    if(!liveGuild||!results.length)return null;
-    const top=results[0];
+    if(!liveGuild||!directResults.length)return null;
+    const top=directResults[0];
     const l=data.filter(d=>d.offense===top.name&&d.guildeAdverse===liveGuild&&!d.victoire).length;
-    return l>0?`${l} défaite${l>1?"s":""} historique${l>1?"s":""} face à ${liveGuild}`:null;
-  },[data,results,liveGuild]);
+    return l>0?`${l}✗ historique face à ${liveGuild}`:null;
+  },[data,directResults,liveGuild]);
 
   const medals=["🥇","🥈","🥉"];
 
   return <div>
-    {/* Barre de contrôle */}
-    <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
-      {/* Toggle mode */}
+    {/* ── Barre de recherche ── */}
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
       <div style={{display:"flex",border:`1px solid ${T.line}`,borderRadius:8,overflow:"hidden",flexShrink:0}}>
-        {[["compo","Défense complète"],["monstre","Par monstre"]].map(([m,label])=>(
+        {[["compo",t("defMode")],["monstre",t("monMode")]].map(([m,label])=>(
           <button key={m} onClick={()=>setSearchMode(m)} style={{padding:"7px 12px",border:"none",
             cursor:"pointer",fontSize:11,fontFamily:FONT,fontWeight:searchMode===m?600:400,
             background:searchMode===m?T.indigoDim:"transparent",
@@ -469,16 +713,15 @@ function SearchWidget({data,liveGuild}){
           </button>
         ))}
       </div>
-      {/* Champ de recherche */}
-      <div style={{flex:1,minWidth:180,position:"relative"}}>
+
+      <div style={{flex:1,minWidth:200,position:"relative"}}>
         <Inp list="sw-lst" value={query} onChange={e=>setQuery(e.target.value)}
-          placeholder={searchMode==="compo"
-            ?"Défense adverse (ex: Amber Tarnisha…)"
-            :"Monstre(s) (ex: Tarnisha Amber)"}
-          onKeyDown={e=>e.key==="Tab"&&prediction&&(e.preventDefault(),setQuery(prediction))}/>
+          placeholder={searchMode==="compo"?t("placeholder_compo"):t("placeholder_mon")}
+          onKeyDown={e=>e.key==="Tab"&&prediction&&(e.preventDefault(),setQuery(prediction))}
+          style={{fontSize:14,padding:"10px 14px"}}/>
         {prediction&&(
-          <div style={{position:"absolute",top:0,left:0,right:0,padding:"8px 12px",
-            fontSize:13,color:T.ink3,pointerEvents:"none",fontFamily:FONT,
+          <div style={{position:"absolute",top:0,left:0,right:0,padding:"10px 14px",
+            fontSize:14,color:T.ink3,pointerEvents:"none",fontFamily:FONT,
             whiteSpace:"nowrap",overflow:"hidden"}}>
             <span style={{opacity:0}}>{query}</span>
             <span>{prediction.slice(query.length)}</span>
@@ -489,13 +732,13 @@ function SearchWidget({data,liveGuild}){
           {(searchMode==="compo"?allDefs:allMonsters).map(n=><option key={n} value={n}/>)}
         </datalist>
       </div>
-      {/* Seuils */}
+
       <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-        <span style={{fontSize:10,color:T.ink3}}>WR≥</span>
+        <span style={{fontSize:10,color:T.ink3}}>{t("wrMin")}</span>
         <input type="number" min={0} max={100} value={minWR} onChange={e=>setMinWR(+e.target.value)}
           style={{width:44,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
             color:T.ink1,padding:"5px 6px",fontSize:11,outline:"none",textAlign:"center"}}/>
-        <span style={{fontSize:10,color:T.ink3}}>Att≥</span>
+        <span style={{fontSize:10,color:T.ink3}}>{t("attMin")}</span>
         <input type="number" min={1} max={30} value={minUses} onChange={e=>setMinUses(+e.target.value)}
           style={{width:38,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
             color:T.ink1,padding:"5px 6px",fontSize:11,outline:"none",textAlign:"center"}}/>
@@ -503,62 +746,101 @@ function SearchWidget({data,liveGuild}){
       {query&&<GhostBtn onClick={()=>setQuery("")} color={T.ink3} small>✕</GhostBtn>}
     </div>
 
-    {/* Info mode monstre */}
-    {searchMode==="monstre"&&query&&(
-      <div style={{fontSize:10,color:T.ink3,marginBottom:8,padding:"4px 8px",
-        background:T.s2,borderRadius:6,display:"inline-block"}}>
-        Défenses contenant tous ces monstres → offenses validées contre elles
-        {results.length>0&&results[0].defCount&&
-          <span style={{color:T.amber,marginLeft:6}}>{results[0].defCount} variante{results[0].defCount>1?"s":""} trouvée{results[0].defCount>1?"s":""}</span>}
-      </div>
-    )}
+    {liveGuild&&<div style={{fontSize:10,color:T.amber,marginBottom:8}}>⚡ {t("cpLive")} {liveGuild}</div>}
 
-    {liveGuild&&<div style={{fontSize:10,color:T.amber,marginBottom:8}}>⚡ Filtré sur {liveGuild}</div>}
-
-    {/* Podium top 3 */}
-    {results.slice(0,3).length>0&&(
-      <div style={{display:"grid",
-        gridTemplateColumns:`repeat(${Math.min(results.length,3)},1fr)`,
-        gap:8,marginBottom:results.slice(3).length>0?10:0}}>
-        {results.slice(0,3).map((r,i)=>(
-          <div key={r.name} style={{background:T.s2,
-            border:`1px solid ${i===0?T.indigoMid:T.line}`,
-            boxShadow:i===0?T.indigoGlow:"none",
-            borderRadius:10,padding:"10px 12px"}}>
-            <div style={{fontSize:13,marginBottom:4}}>{medals[i]}</div>
-            <div style={{fontSize:12,fontWeight:600,color:T.ink1,marginBottom:8,
-              lineHeight:1.35,minHeight:30}}>{r.name}</div>
-            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-              <WRBadge rate={r.wr}/>
-              <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-            </div>
-            {i===0&&histWarning&&(
-              <div style={{fontSize:10,color:T.red,marginTop:6,
-                padding:"3px 6px",background:T.redDim,borderRadius:4}}>{histWarning}</div>
-            )}
+    {/* ── Section RÉSULTATS DIRECTS ── */}
+    {directResults.length>0&&(
+      <div style={{marginBottom:16}}>
+        {/* Header section directe */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div style={{flex:1,height:1,background:T.indigoMid}}/>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:T.indigo}}/>
+            <span style={{fontSize:10,fontWeight:700,color:T.indigo,
+              textTransform:"uppercase",letterSpacing:1}}>{t("directResults")}</span>
           </div>
-        ))}
-      </div>
-    )}
-
-    {/* Liste suite */}
-    {results.slice(3).length>0&&(
-      <div>
-        <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
-          Autres options
+          <div style={{flex:1,height:1,background:T.indigoMid}}/>
         </div>
-        {results.slice(3,14).map(r=>(
-          <div key={r.name} style={ROW}>
-            <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
-            <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-            <WRBadge rate={r.wr}/>
+        <div style={{fontSize:10,color:T.ink3,marginBottom:10,textAlign:"center"}}>
+          {t("directSub")} · {directDefs.size} défense{directDefs.size>1?"s":""}
+        </div>
+
+        {/* Podium top 3 directs */}
+        <div style={{display:"grid",
+          gridTemplateColumns:`repeat(${Math.min(directResults.length,3)},1fr)`,
+          gap:8,marginBottom:directResults.slice(3).length>0?10:0}}>
+          {directResults.slice(0,3).map((r,i)=>(
+            <OffenseCard key={r.name} r={r} idx={i} medals={medals}
+              histWarning={i===0?histWarning:null} isVariant={false}/>
+          ))}
+        </div>
+
+        {/* Autres directs */}
+        {directResults.slice(3).length>0&&(
+          <div>
+            <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",
+              letterSpacing:1,marginBottom:6}}>{t("others")}</div>
+            {directResults.slice(3,12).map(r=>(
+              <div key={r.name} style={{...ROW,cursor:"default"}}>
+                <span style={{flex:1,fontSize:12,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+                <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+                <WRBadge rate={r.wr}/>
+                <CopyBtn text={r.rawName||r.name}/>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     )}
-    {query.trim()&&results.length===0&&(
-      <div style={{padding:"10px 0",fontSize:12,color:T.ink3}}>
-        Aucun résultat — essaie un nom partiel, baisse WR min ou Att min
+
+    {/* ── Section VARIANTES ÉLÉMENTAIRES ── */}
+    {elemResults.length>0&&(
+      <div>
+        {/* Header section élémentaire */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div style={{flex:1,height:1,background:T.amberMid}}/>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:T.amber}}/>
+            <span style={{fontSize:10,fontWeight:700,color:T.amber,
+              textTransform:"uppercase",letterSpacing:1}}>{t("elemResults")}</span>
+          </div>
+          <div style={{flex:1,height:1,background:T.amberMid}}/>
+        </div>
+        <div style={{fontSize:10,color:T.ink3,marginBottom:10,textAlign:"center"}}>
+          {t("elemSub")}
+        </div>
+
+        <div style={{display:"grid",
+          gridTemplateColumns:`repeat(${Math.min(elemResults.length,3)},1fr)`,gap:8}}>
+          {elemResults.slice(0,3).map((r,i)=>(
+            <OffenseCard key={r.name} r={r} idx={i} medals={medals}
+              histWarning={null} isVariant={true}/>
+          ))}
+        </div>
+
+        {elemResults.slice(3).length>0&&(
+          <div style={{marginTop:10}}>
+            {elemResults.slice(3,8).map(r=>(
+              <div key={r.name} style={{...ROW,opacity:0.8}}>
+                <span style={{fontSize:9,color:T.amber,flexShrink:0}}>
+                  {ELEM_ICON[r.mainElem]||"~"}
+                </span>
+                <span style={{flex:1,fontSize:12,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap",paddingLeft:4}}>{r.name}</span>
+                <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+                <WRBadge rate={r.wr}/>
+                <CopyBtn text={r.rawName||r.name}/>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+
+    {query.trim()&&directResults.length===0&&elemResults.length===0&&(
+      <div style={{padding:"14px 0",fontSize:12,color:T.ink3,textAlign:"center"}}>
+        {t("noResult")}
       </div>
     )}
   </div>;
@@ -778,42 +1060,61 @@ function SmartDock({tab,setTab,data,onImport,liveOpen,setLiveOpen,importMsg,file
     window.addEventListener("scroll",h,{passive:true});
     return()=>window.removeEventListener("scroll",h);
   },[]);
-  const TABS=[{id:"dashboard",label:"Dashboard"},{id:"guilde",label:"Guilde"},{id:"combat",label:"Détail combat"}];
+  const [lang,setLang]=useState("fr");
+  const toggleLang=()=>{
+    const nl=lang==="fr"?"en":"fr";
+    CURRENT_LANG=nl;setLang(nl);
+  };
+  const TABS=[
+    {id:"counterpick",label:lang==="fr"?"Contre-pick":"Counter-pick",icon:"⚡"},
+    {id:"analyse",    label:lang==="fr"?"Analyse":"Analysis",         icon:"▤"},
+    {id:"guilde",     label:lang==="fr"?"Guilde":"Guild",             icon:"◈"},
+    {id:"combat",     label:lang==="fr"?"Détail":"Log",               icon:"≡"},
+  ];
   const opacity=scrolled&&!hovered?0.14:1;
-  return <div style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",
+  return <div className="dock-wrap" style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",
     zIndex:1000,opacity,transition:`opacity 0.4s ${EASE}`}}
     onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)}>
     <div style={{display:"flex",alignItems:"center",
       background:"rgba(8,8,12,0.82)",backdropFilter:"blur(24px) saturate(160%)",
       border:`1px solid ${T.line}`,borderRadius:40,padding:"4px 6px",
       boxShadow:"0 4px 32px rgba(0,0,0,0.7)"}}>
-      <div style={{padding:"4px 14px 4px 12px",borderRight:`1px solid ${T.line}`,marginRight:4,flexShrink:0}}>
-        <span style={{fontSize:12,fontWeight:700,color:T.ink1,letterSpacing:-0.3}}>Siege Tracker</span>
+      <div style={{padding:"4px 12px 4px 10px",borderRight:`1px solid ${T.line}`,marginRight:4,flexShrink:0}}>
+        <span style={{fontSize:11,fontWeight:700,color:T.ink1,letterSpacing:-0.3}}>SW Siege</span>
       </div>
-      {TABS.map(t=>{
-        const active=tab===t.id;
-        return <button key={t.id} onClick={()=>setTab(t.id)} style={{
-          padding:"5px 14px",border:"none",cursor:"pointer",fontSize:12,
+      {TABS.map(tb=>{
+        const active=tab===tb.id;
+        return <button key={tb.id} onClick={()=>setTab(tb.id)} style={{
+          padding:"5px 13px",border:"none",cursor:"pointer",fontSize:12,
           fontWeight:active?600:400,fontFamily:FONT,whiteSpace:"nowrap",
           background:active?"rgba(99,102,241,0.15)":"transparent",
           color:active?T.indigo:T.ink2,borderRadius:30,
-          transition:`all 0.12s ${EASE}`}}>{t.label}</button>;
+          transition:`all 0.12s ${EASE}`}}>
+          <span className="hide-desktop">{tb.icon}</span>
+          <span className="hide-mobile">{tb.label}</span>
+        </button>;
       })}
       <div style={{width:1,height:18,background:T.line,margin:"0 6px",flexShrink:0}}/>
       <span style={{fontSize:11,color:T.ink3,padding:"0 4px",fontVariantNumeric:"tabular-nums",
         whiteSpace:"nowrap"}}>{data.length}</span>
       <button onClick={()=>fileRef.current.click()} style={{
-        display:"flex",alignItems:"center",gap:4,padding:"5px 11px",
+        display:"flex",alignItems:"center",gap:4,padding:"5px 10px",
         border:`1px solid ${T.line}`,borderRadius:30,background:"transparent",
         color:T.ink2,fontSize:11,cursor:"pointer",fontFamily:FONT,marginLeft:4}}>
-        ↑ Import</button>
+        {t("import")}</button>
       <input ref={fileRef} type="file" accept=".txt,.csv,.json" style={{display:"none"}} onChange={onImport}/>
       <button onClick={()=>setLiveOpen(v=>!v)} style={{
         display:"flex",alignItems:"center",gap:5,marginLeft:4,
         background:liveOpen?T.indigo:T.indigoDim,
         border:`1px solid ${liveOpen?T.indigo:T.indigoMid}`,
-        borderRadius:30,padding:"5px 12px",color:liveOpen?"#fff":T.indigo,
-        fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:FONT}}>⚔ Live</button>
+        borderRadius:30,padding:"5px 11px",color:liveOpen?"#fff":T.indigo,
+        fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:FONT}}>{t("live")}</button>
+      {/* Lang toggle */}
+      <button onClick={toggleLang} style={{
+        marginLeft:6,padding:"4px 9px",border:`1px solid ${T.line}`,borderRadius:30,
+        background:"transparent",color:T.ink3,fontSize:10,cursor:"pointer",fontFamily:FONT}}>
+        {lang==="fr"?"EN":"FR"}
+      </button>
     </div>
     {importMsg&&(
       <div style={{marginTop:8,padding:"6px 16px",borderRadius:20,textAlign:"center",
@@ -952,6 +1253,22 @@ export default function App(){
   );
 
   return <div style={{minHeight:"100vh",background:T.bg,color:T.ink1,fontFamily:FONT}}>
+    <style>{`
+      @media(max-width:700px){
+        .grid-2col{grid-template-columns:1fr!important;}
+        .hide-mobile{display:none!important;}
+        .hide-desktop{display:inline!important;}
+        .panel-fixed{position:fixed;top:0!important;left:0!important;
+          transform:none!important;width:100vw!important;height:100vh!important;
+          max-height:100vh!important;border-radius:0!important;}
+        .dock-wrap{top:8px!important;}
+        .page-pad{padding-top:64px!important;padding-left:10px!important;padding-right:10px!important;}
+        .combat-grid{grid-template-columns:1fr!important;}
+      }
+      @media(min-width:701px){
+        .hide-desktop{display:none!important;}
+      }
+    `}</style>
     <SmartDock tab={tab} setTab={setTab} data={data} onImport={handleImport}
       liveOpen={liveOpen} setLiveOpen={setLiveOpen} importMsg={importMsg} fileRef={fileRef}/>
     {liveOpen&&<div style={{paddingTop:72}}>
@@ -959,10 +1276,12 @@ export default function App(){
         setLiveGuild={setLiveGuild} onClose={()=>setLiveOpen(false)}/>
     </div>}
     <div style={{maxWidth:1160,width:"100%",margin:"0 auto",
-      padding:`${liveOpen?14:80}px 14px 40px`,boxSizing:"border-box"}}>
-      {tab==="dashboard"&&<Dashboard data={data} liveGuild={liveGuild}/>}
-      {tab==="guilde"   &&<Guilde    data={data}/>}
-      {tab==="combat"   &&<DetailCombat data={data} setData={setData}/>}
+      padding:`${liveOpen?14:80}px 14px 40px`,boxSizing:"border-box"}}
+      className="page-pad">
+      {tab==="counterpick"&&<CounterpickPage data={data} liveGuild={liveGuild}/>}
+      {tab==="analyse"    &&<AnalysePage    data={data} liveGuild={liveGuild}/>}
+      {tab==="guilde"     &&<Guilde         data={data}/>}
+      {tab==="combat"     &&<DetailCombat   data={data} setData={setData}/>}
     </div>
   </div>;
 }
@@ -970,7 +1289,51 @@ export default function App(){
 /* ══════════════════════════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════════════════════════ */
-function Dashboard({data,liveGuild}){
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COUNTERPICK PAGE — Feature principale, pleine largeur
+══════════════════════════════════════════════════════════════════════════ */
+function CounterpickPage({data,liveGuild}){
+  const totalW=data.filter(d=>d.victoire).length;
+  const totalWR=wr(totalW,data.length);
+  return <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+    {/* Hero — Contre-pick pleine largeur */}
+    <div style={{background:`linear-gradient(160deg,rgba(99,102,241,0.12) 0%,rgba(99,102,241,0.02) 100%)`,
+      border:`1.5px solid ${T.indigoMid}`,borderRadius:16,padding:"22px 24px",
+      boxShadow:T.indigoGlow}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:800,color:T.ink1,letterSpacing:-0.5}}>
+            {t("counterpick")}
+          </div>
+          <div style={{fontSize:12,color:T.ink3,marginTop:3}}>
+            {liveGuild?`${t("cpLive")} ${liveGuild}`:t("cpSub")}
+          </div>
+        </div>
+        {/* Mini stats */}
+        <div style={{display:"flex",gap:12,alignItems:"center"}}>
+          {liveGuild&&<span style={{fontSize:11,color:T.amber,background:T.amberDim,
+            border:`1px solid ${T.amberMid}`,borderRadius:20,padding:"3px 10px",fontWeight:600}}>
+            ⚡ {liveGuild}</span>}
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:22,fontWeight:800,color:totalWR>=55?T.green:T.red,
+              fontVariantNumeric:"tabular-nums",lineHeight:1}}>{totalWR}%</div>
+            <div style={{fontSize:10,color:T.ink3,marginTop:2}}>
+              {totalW}V · {data.length-totalW}D
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* SearchWidget pleine largeur */}
+      <SearchWidget data={data} liveGuild={liveGuild}/>
+    </div>
+
+  </div>;
+}
+
+function AnalysePage({data,liveGuild}){
   const [globalN,setGlobalN]=useState(1250);
   const [offN,setOffN]      =useState(1250);
   const [defN,setDefN]      =useState(1250);
@@ -998,7 +1361,7 @@ function Dashboard({data,liveGuild}){
   const handleDefClick=useCallback(item=>{
     const map={};
     data.filter(d=>d.defense===item.name).forEach(d=>{
-      if(!map[d.offense])map[d.offense]={name:d.offense,wins:0,losses:0,total:0};
+      if(!map[d.offense])map[d.offense]={name:d.offense,rawName:d.offenseRaw||d.offense,wins:0,losses:0,total:0};
       map[d.offense].total++;if(d.victoire)map[d.offense].wins++;else map[d.offense].losses++;
     });
     const items=Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total),reliability:wilson(x.wins,x.total)}))
@@ -1009,7 +1372,7 @@ function Dashboard({data,liveGuild}){
   const handleOffClick=useCallback(item=>{
     const map={};
     data.filter(d=>d.offense===item.name).forEach(d=>{
-      if(!map[d.defense])map[d.defense]={name:d.defense,wins:0,losses:0,total:0};
+      if(!map[d.defense])map[d.defense]={name:d.defense,rawName:d.defenseRaw||d.defense,wins:0,losses:0,total:0};
       map[d.defense].total++;if(d.victoire)map[d.defense].wins++;else map[d.defense].losses++;
     });
     const items=Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total)}))
@@ -1023,59 +1386,8 @@ function Dashboard({data,liveGuild}){
 
     {panel&&<><Overlay onClick={()=>setPanel(null)}/><OffensesPanel title={panel.title} items={panel.items} onClose={()=>setPanel(null)}/></>}
 
-    {/* ── LIGNE 1 : Contre-pick + Stats ── */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 148px",gap:14,alignItems:"start"}}>
-      <div style={{background:`linear-gradient(160deg,rgba(99,102,241,0.10) 0%,rgba(99,102,241,0.02) 100%)`,
-        border:`1.5px solid ${T.indigoMid}`,borderRadius:14,padding:"16px 18px",
-        boxShadow:T.indigoGlow}}>
-        <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}}>
-          <span style={{fontSize:14,fontWeight:700,color:T.ink1}}>Contre-pick</span>
-          <span style={{fontSize:10,color:T.ink3}}>
-            {liveGuild?`Live · ${liveGuild}`:"défense adverse → meilleures offenses"}
-          </span>
-          {liveGuild&&<span style={{fontSize:10,color:T.amber,background:T.amberDim,
-            border:`1px solid ${T.amberMid}`,borderRadius:20,padding:"2px 9px",fontWeight:600}}>
-            ⚡ {liveGuild}</span>}
-        </div>
-        <SearchWidget data={data} liveGuild={liveGuild}/>
-      </div>
-
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {/* Profondeur globale */}
-        <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
-            Profondeur
-          </div>
-          <SliderControl value={globalN} onChange={setAllN} max={data.length||2000}/>
-          <div style={{fontSize:10,color:T.ink3,marginTop:4,fontVariantNumeric:"tabular-nums"}}>
-            {globalN} combats
-          </div>
-        </div>
-        {/* WR */}
-        <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Win Rate</div>
-          <div style={{fontSize:28,fontWeight:800,color:totalWR>=55?T.green:T.red,
-            fontVariantNumeric:"tabular-nums",lineHeight:1,letterSpacing:-1}}>{totalWR}%</div>
-        </div>
-        {/* V / D */}
-        <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,padding:"10px 12px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{fontSize:12,color:T.green,fontWeight:700}}>{totalW}V</span>
-            <span style={{fontSize:12,color:T.red,fontWeight:700}}>{data.length-totalW}D</span>
-          </div>
-          <div style={{height:4,background:T.s4,borderRadius:2,overflow:"hidden"}}>
-            <div style={{width:`${totalWR}%`,height:"100%",
-              background:totalWR>=55?T.green:T.amber,borderRadius:2}}/>
-          </div>
-          <div style={{fontSize:10,color:T.ink3,marginTop:5,textAlign:"center",fontVariantNumeric:"tabular-nums"}}>
-            {data.length} att.
-          </div>
-        </div>
-      </div>
-    </div>
-
     {/* ── LIGNE 2 : Top Offenses + Top Défenses ── */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+    <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <Card>
         <SH title="Top Offenses de la Guilde" sub="clic → défenses rencontrées"
           right={<SliderControl value={offN} onChange={setOffN} max={data.length||2000}/>}/>
@@ -1187,7 +1499,7 @@ function Guilde({data}){
 
     {/* ── MEMBRES ── */}
     {view==="membres"&&(
-      <div style={{display:"grid",gridTemplateColumns:selectedPlayer?"minmax(0,1fr) 360px":"1fr",gap:12}}>
+      <div className="grid-2col" style={{display:"grid",gridTemplateColumns:selectedPlayer?"minmax(0,1fr) 360px":"1fr",gap:12}}>
         <Card>
           <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <Inp value={search} onChange={e=>setSearch(e.target.value)}
@@ -1412,6 +1724,82 @@ function GuildDetail({guild,data,onClose}){
   </Card>;
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMBAT CARDS — Accordéon mobile-friendly (remplace le tableau)
+══════════════════════════════════════════════════════════════════════════ */
+function CombatCards({rows}){
+  const [openId,setOpenId]=useState(null);
+  if(!rows.length)return <Empty>Aucun combat</Empty>;
+  return(
+    <div className="combat-grid" style={{display:"grid",
+      gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:8}}>
+      {rows.map(d=>{
+        const isOpen=openId===d.id;
+        const winColor=d.victoire?T.green:T.red;
+        return(
+          <div key={d.id}
+            onClick={()=>setOpenId(isOpen?null:d.id)}
+            style={{background:T.s2,border:`1px solid ${isOpen?T.lineM:T.line}`,
+              borderRadius:10,padding:"10px 12px",cursor:"pointer",
+              borderLeft:`3px solid ${winColor}`,
+              transition:`border-color 0.15s`}}>
+            {/* Header card */}
+            <div style={{display:"flex",alignItems:"center",
+              justifyContent:"space-between",marginBottom:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:11,fontWeight:700,color:T.ink1}}>{d.joueur}</span>
+                <span style={{fontSize:10,color:T.ink3}}>{d.session}</span>
+              </div>
+              <span style={{fontSize:10,fontWeight:700,color:winColor,
+                background:d.victoire?T.greenDim:T.redDim,
+                borderRadius:4,padding:"1px 7px"}}>
+                {d.victoire?"✓ Victoire":"✗ Défaite"}
+              </span>
+            </div>
+            {/* Offense */}
+            <div style={{fontSize:12,color:T.ink1,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3}}>
+              {d.offense}
+            </div>
+            {/* Defense */}
+            <div style={{fontSize:11,color:T.ink3,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              vs {d.defense}
+            </div>
+            {/* Détails accordéon */}
+            {isOpen&&(
+              <div style={{marginTop:10,paddingTop:10,
+                borderTop:`1px solid ${T.line}`,
+                display:"flex",flexDirection:"column",gap:6}}>
+                <CompoChips compo={d.offenseRaw||d.offense}/>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                  {d.joueurAdverse&&(
+                    <span style={{fontSize:10,color:T.ink3}}>
+                      vs <span style={{color:T.ink2}}>{d.joueurAdverse}</span>
+                    </span>
+                  )}
+                  {d.guildeAdverse&&(
+                    <span style={{fontSize:10,color:T.ink3}}>
+                      Guilde : <span style={{color:T.ink2}}>{d.guildeAdverse}</span>
+                    </span>
+                  )}
+                  {d.date&&(
+                    <span style={{fontSize:10,color:T.ink3}}>{d.date}</span>
+                  )}
+                </div>
+                <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                  <CopyBtn text={d.offense}/>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    DÉTAIL COMBAT
 ══════════════════════════════════════════════════════════════════════════ */
@@ -1451,18 +1839,42 @@ function DetailCombat({data,setData}){
         <PrimaryBtn onClick={()=>setShowForm(v=>!v)}>+ Saisir</PrimaryBtn>
         <GhostBtn onClick={()=>exportCSV(filtered)} color={T.indigo}>↓ Export</GhostBtn>
       </div>}/>
-    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-      <Sel value={sess} onChange={e=>setSess(e.target.value)} style={{minWidth:100}}>
+    {/* Chips filtres résultat */}
+    <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+      {["","Victoire","Défaite"].map(r=>(
+        <button key={r} onClick={()=>setFRes(r)}
+          style={{padding:"5px 12px",borderRadius:20,border:`1px solid ${
+            fRes===r?(r==="Victoire"?T.green:r==="Défaite"?T.red:T.indigo):T.line}`,
+            background:fRes===r?(r==="Victoire"?T.greenDim:r==="Défaite"?T.redDim:T.indigoDim):"transparent",
+            color:fRes===r?(r==="Victoire"?T.green:r==="Défaite"?T.red:T.indigo):T.ink3,
+            fontSize:11,fontWeight:fRes===r?600:400,cursor:"pointer",fontFamily:FONT,
+            transition:`all 0.12s ${EASE}`}}>
+          {r||"Tous"}
+        </button>
+      ))}
+      <div style={{width:1,height:16,background:T.line,margin:"0 2px"}}/>
+      {/* Chips joueurs */}
+      {players.slice(0,8).map(p=>(
+        <button key={p} onClick={()=>setFPl(fPl===p?"":p)}
+          style={{padding:"5px 12px",borderRadius:20,
+            border:`1px solid ${fPl===p?T.indigo:T.line}`,
+            background:fPl===p?T.indigoDim:"transparent",
+            color:fPl===p?T.indigo:T.ink3,
+            fontSize:11,fontWeight:fPl===p?600:400,cursor:"pointer",fontFamily:FONT}}>
+          {p}
+        </button>
+      ))}
+      {players.length>8&&(
+        <Sel value={fPl} onChange={e=>setFPl(e.target.value)} style={{fontSize:11,padding:"4px 8px"}}>
+          <option value="">+ autres</option>
+          {players.slice(8).map(p=><option key={p} value={p}>{p}</option>)}
+        </Sel>
+      )}
+      <div style={{width:1,height:16,background:T.line,margin:"0 2px"}}/>
+      {/* Sessions */}
+      <Sel value={sess} onChange={e=>setSess(e.target.value)} style={{fontSize:11,padding:"4px 8px"}}>
         <option value="">Toutes sessions</option>
         {sessions.map(s=><option key={s} value={s}>{s}</option>)}
-      </Sel>
-      <Sel value={fPl} onChange={e=>setFPl(e.target.value)} style={{minWidth:110}}>
-        <option value="">Tous joueurs</option>
-        {players.map(p=><option key={p} value={p}>{p}</option>)}
-      </Sel>
-      <Sel value={fRes} onChange={e=>setFRes(e.target.value)} style={{minWidth:100}}>
-        <option value="">Tous résultats</option>
-        <option>Victoire</option><option>Défaite</option>
       </Sel>
       <span style={{fontSize:11,color:T.ink3,marginLeft:"auto",fontVariantNumeric:"tabular-nums"}}>
         {filtered.length} combats</span>
@@ -1489,32 +1901,6 @@ function DetailCombat({data,setData}){
         <GhostBtn onClick={()=>setShowForm(false)} color={T.red}>Annuler</GhostBtn>
       </div>
     </div>}
-    <div style={{overflowX:"auto",maxHeight:460,overflowY:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}>
-        <thead style={{position:"sticky",top:0,background:T.s1,zIndex:10}}>
-          <tr style={{borderBottom:`1px solid ${T.line}`}}>
-            {["Session","Joueur","Adversaire","Offense","Défense","Résultat","Guilde adv."].map(h=>(
-              <th key={h} style={{padding:"6px 10px",color:T.ink3,textAlign:"left",
-                fontWeight:500,fontSize:10,textTransform:"uppercase",letterSpacing:0.7,whiteSpace:"nowrap"}}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.slice().reverse().slice(0,300).map(d=>(
-            <tr key={d.id} style={{borderBottom:`1px solid ${T.line}`}}>
-              <td style={{padding:"6px 10px",color:T.ink3,whiteSpace:"nowrap"}}>{d.session}</td>
-              <td style={{padding:"6px 10px",fontWeight:500,color:T.ink1,whiteSpace:"nowrap"}}>{d.joueur}</td>
-              <td style={{padding:"6px 10px",color:T.ink3,whiteSpace:"nowrap"}}>{d.joueurAdverse||"—"}</td>
-              <td style={{padding:"6px 10px",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.offense}</td>
-              <td style={{padding:"6px 10px",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:T.ink2}}>{d.defense}</td>
-              <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>
-                <span style={{color:d.victoire?T.green:T.red,fontWeight:600,fontSize:11}}>
-                  {d.victoire?"✓ Victoire":"✗ Défaite"}</span></td>
-              <td style={{padding:"6px 10px",color:T.ink3,whiteSpace:"nowrap"}}>{d.guildeAdverse}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <CombatCards rows={filtered.slice().reverse().slice(0,300)}/>
   </Card>;
 }
