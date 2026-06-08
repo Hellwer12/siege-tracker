@@ -1,3 +1,4 @@
+// v6.0 - 2026-06-08T19:35:52.649548
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
