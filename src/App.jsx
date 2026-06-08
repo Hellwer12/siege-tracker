@@ -152,12 +152,13 @@ function extractMonsterNames(compoRaw){
 }
 
 // Affiche les monstres d'une compo (version RAW) sous forme de chips
-function CompoChips({compo}){
+function CompoChips({compo,size=20}){
   if(!compo)return null;
   const names = extractMonsterNames(compo);
+  if(!names.length)return null;
   return(
-    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
-      {names.map(n=><MonsterChip key={n} name={n}/>)}
+    <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+      {names.map(n=><MonsterChip key={n} name={n} size={size}/>)}
     </div>
   );
 }
@@ -168,7 +169,7 @@ function CompoChips({compo}){
 ══════════════════════════════════════════════════════════════════════════ */
 const LANG={
   fr:{
-    tabs:["Contre-pick","Analyse","Guilde","Détail combat"],
+    tabs:["Contre-pick","Analyse","Guilde",t("detailTitle")],
     tabIds:["counterpick","analyse","guilde","combat"],
     counterpick:"Contre-pick",
     cpSub:"Défense adverse → meilleures offenses à jouer",
@@ -180,7 +181,7 @@ const LANG={
     placeholder_mon:"Monstre(s) clés (ex: Tarnisha Amber)",
     directResults:"Résultats directs",
     directSub:"offenses validées contre cette défense exacte",
-    elemResults:"Variantes élémentaires",
+    elemResults:"Axes de réflexion",
     elemSub:"défenses similaires par archétype · même élément ou contre-élément",
     noResult:"Aucun résultat — essaie un nom partiel, baisse WR min ou Att min",
     noElem:"Charge les images pour activer la recherche élargie",
@@ -189,16 +190,45 @@ const LANG={
     import:"↑ Import",
     live:"⚔ Live",
     analyse:"Analyse",
-    topOff:"Top Offenses de la Guilde",
-    topDef:"Top Défenses rencontrées",
-    worstDef:"Défenses qui nous battent",
+    topOff:t("topOffTitle"),
+    topDef:t("topDefTitle"),
+    worstDef:t("worstTitle"),
     clusters:"Clusters de défenses",
     depth:"Profondeur",
     combats:"combats",
     winRate:"Win Rate",
-    victories:"V", defeats:"D", attacks:"att.",
+    victories:"V", defeats:"D", attacks:t("attacks2"),
     click_off:"clic → défenses rencontrées",
     click_def:"clic → meilleures offenses",
+    // Guilde
+    members:t("members"), rivalries:t("rivalries"),
+    ranking:t("ranking"), minAtt:"min", attacks2:t("attacks2"),
+    searchPlayer:"Rechercher un pseudo…",
+    searchGuild:"Rechercher une guilde…",
+    noGuild:"Aucune guilde trouvée",
+    matchups:"Matchs", victories2:"Victoires", defeats2:"Défaites",
+    defsUsed:t("defsUsed"),
+    hardDefs:t("hardDefs"),
+    offenses:t("offenses"),
+    // Analyse
+    topOffTitle:t("topOffTitle"),
+    topDefTitle:t("topDefTitle"),
+    worstTitle:t("worstTitle"),
+    worstSub:t("worstSub"),
+    worstOff:t("worstOff"),
+    noVictory:"Aucune victoire enregistrée",
+    depth2:"Profondeur", combats2:"combats",
+    // Détail combat
+    detailTitle:t("detailTitle"),
+    allSessions:t("allSessions"),
+    allPlayers:t("allPlayers"),
+    allResults:t("allResults"),
+    victory:"Victoire", defeat:"Défaite",
+    session:"Session", player:"Joueur",
+    opponent:"Adversaire", offense2:"Offense",
+    defense2:"Défense", result:"Résultat",
+    guildAdv:"Guilde adv.",
+    addCombat:"+ Saisir", export:"↓ Export",
   },
   en:{
     tabs:["Counter-pick","Analysis","Guild","Combat log"],
@@ -213,7 +243,7 @@ const LANG={
     placeholder_mon:"Key monster(s) (e.g. Tarnisha Amber)",
     directResults:"Direct results",
     directSub:"offenses validated against this exact defense",
-    elemResults:"Elemental variants",
+    elemResults:"Lines of thought",
     elemSub:"similar defenses by archetype · same or counter-element",
     noResult:"No results — try a partial name, lower WR min or Att min",
     noElem:"Load images to enable expanded search",
@@ -229,9 +259,38 @@ const LANG={
     depth:"Depth",
     combats:"combats",
     winRate:"Win Rate",
-    victories:"W", defeats:"L", attacks:"att.",
+    victories:"W", defeats:"L", attacks:t("attacks2"),
     click_off:"click → defenses encountered",
     click_def:"click → best offenses",
+    // Guild
+    members:"Members", rivalries:"Rivalries",
+    ranking:"Ranking", minAtt:"min", attacks2:t("attacks2"),
+    searchPlayer:"Search a player…",
+    searchGuild:"Search a guild…",
+    noGuild:"No guild found",
+    matchups:"Matches", victories2:"Victories", defeats2:"Defeats",
+    defsUsed:"Most used defenses",
+    hardDefs:"Hard defenses",
+    offenses:t("offenses"),
+    // Analysis
+    topOffTitle:"Guild Top Offenses",
+    topDefTitle:"Top Defenses encountered",
+    worstTitle:"Defenses that beat us",
+    worstSub:"weighted volume+rate · min 3 att · click → winning offenses",
+    worstOff:"Winning offenses against this defense",
+    noVictory:"No victory recorded",
+    depth2:"Depth", combats2:"combats",
+    // Combat log
+    detailTitle:"Combat log",
+    allSessions:"All sessions",
+    allPlayers:"All players",
+    allResults:"All results",
+    victory:"Victory", defeat:"Defeat",
+    session:"Session", player:"Player",
+    opponent:"Opponent", offense2:"Offense",
+    defense2:"Defense", result:"Result",
+    guildAdv:"Enemy guild",
+    addCombat:"+ Add", export:"↓ Export",
   },
 };
 // Context global de langue
@@ -290,9 +349,10 @@ const dangerScore=(losses,total)=>{
 
 function computeStats(data,field){
   const map={};
+  const rawField=field==="defense"?"defenseRaw":field==="offense"?"offenseRaw":null;
   data.forEach(d=>{
     const n=d[field];if(!n)return;
-    if(!map[n])map[n]={name:n,wins:0,losses:0,total:0};
+    if(!map[n])map[n]={name:n,wins:0,losses:0,total:0,rawName:rawField?d[rawField]||n:n};
     map[n].total++;
     if(d.victoire)map[n].wins++;else map[n].losses++;
   });
@@ -516,8 +576,8 @@ function OffensesPanel({title,items,onClose}){
             <WilsonBadge wins={o.wins} total={o.total}/>
             <CopyBtn text={o.rawName||o.name}/>
           </div>
-          <div style={{paddingLeft:28}}>
-            <CompoChips compo={o.rawName||o.name}/>
+          <div style={{paddingLeft:28,marginTop:4}}>
+            <CompoChips compo={o.rawName||o.name} size={18}/>
           </div>
         </div>
       ))}
@@ -607,7 +667,7 @@ function OffenseCard({r,idx,histWarning,medals,isVariant}){
         <div style={{position:"absolute",top:8,right:8,fontSize:9,fontWeight:700,
           color:T.amber,background:T.amberDim,borderRadius:4,padding:"1px 6px",
           letterSpacing:0.5,textTransform:"uppercase"}}>
-          {ELEM_ICON[r.mainElem]||"~"} Variante
+          {ELEM_ICON[r.mainElem]||"~"} Axe de réflexion
         </div>
       )}
       <div style={{fontSize:12,marginBottom:3,color:T.ink3}}>{medals[idx]||`#${idx+1}`}</div>
@@ -616,12 +676,15 @@ function OffenseCard({r,idx,histWarning,medals,isVariant}){
       <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
         <WRBadge rate={r.wr}/>
         <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-        <WilsonBadge wins={r.wins} total={r.total}/>
       </div>
       {idx===0&&histWarning&&(
         <div style={{fontSize:10,color:T.red,padding:"2px 6px",
           background:T.redDim,borderRadius:4,marginBottom:4}}>{histWarning}</div>
       )}
+      {/* Images des monstres de l'offense */}
+      <div style={{marginBottom:6}}>
+        <CompoChips compo={r.rawName||r.name}/>
+      </div>
       <div style={{display:"flex",justifyContent:"flex-end"}}>
         <CopyBtn text={r.rawName||r.name}/>
       </div>
@@ -803,7 +866,7 @@ function SearchWidget({data,liveGuild}){
           <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:T.amber}}/>
             <span style={{fontSize:10,fontWeight:700,color:T.amber,
-              textTransform:"uppercase",letterSpacing:1}}>{t("elemResults")}</span>
+              textTransform:"uppercase",letterSpacing:1}}>{lang==="fr"?"Axes de réflexion":"Lines of thought"}</span>
           </div>
           <div style={{flex:1,height:1,background:T.amberMid}}/>
         </div>
@@ -852,8 +915,8 @@ function WorstDefsCard({worstDefs,data,openDef,setOpenDef,worstN,setWorstN,maxN}
   const [showAll,setShowAll]=useState(false);
   const shown=showAll?worstDefs:worstDefs.slice(0,8);
   return <Card>
-    <SH title="Défenses qui nous battent"
-      sub="pondéré volume+taux · min 3 att · clic → offenses gagnantes"
+    <SH title=t("worstTitle")
+      sub=t("worstSub")
       right={<SliderControl value={worstN} onChange={setWorstN} max={maxN}/>}/>
     {worstDefs.length===0
       ?<Empty>Aucune défense (min 3 attaques sur cette fenêtre)</Empty>
@@ -927,7 +990,7 @@ function ExpandableDef({s,data,isOpen,onOpen,dimmed}){
           Offenses gagnantes contre cette défense
         </div>
         {offenses.length===0
-          ?<div style={{fontSize:11,color:T.ink3}}>Aucune victoire enregistrée</div>
+          ?<div style={{fontSize:11,color:T.ink3}}>{t("noVictory")}</div>
           :offenses.map(o=>(
             <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,
               padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
@@ -1052,7 +1115,7 @@ function DefenseClusters({clusters,data,onDefClick}){
 /* ══════════════════════════════════════════════════════════════════════════
    SMART DOCK
 ══════════════════════════════════════════════════════════════════════════ */
-function SmartDock({tab,setTab,data,onImport,liveOpen,setLiveOpen,importMsg,fileRef}){
+function SmartDock({tab,setTab,data,onImport,importMsg,fileRef}){
   const [scrolled,setScrolled]=useState(false);
   const [hovered,setHovered]=useState(false);
   useEffect(()=>{
@@ -1068,7 +1131,7 @@ function SmartDock({tab,setTab,data,onImport,liveOpen,setLiveOpen,importMsg,file
   const TABS=[
     {id:"counterpick",label:lang==="fr"?"Contre-pick":"Counter-pick",icon:"⚡"},
     {id:"analyse",    label:lang==="fr"?"Analyse":"Analysis",         icon:"▤"},
-    {id:"guilde",     label:lang==="fr"?"Guilde":"Guild",             icon:"◈"},
+    {id:"guilde",     label:t("guilde"),             icon:"◈"},
     {id:"combat",     label:lang==="fr"?"Détail":"Log",               icon:"≡"},
   ];
   const opacity=scrolled&&!hovered?0.14:1;
@@ -1103,12 +1166,7 @@ function SmartDock({tab,setTab,data,onImport,liveOpen,setLiveOpen,importMsg,file
         color:T.ink2,fontSize:11,cursor:"pointer",fontFamily:FONT,marginLeft:4}}>
         {t("import")}</button>
       <input ref={fileRef} type="file" accept=".txt,.csv,.json" style={{display:"none"}} onChange={onImport}/>
-      <button onClick={()=>setLiveOpen(v=>!v)} style={{
-        display:"flex",alignItems:"center",gap:5,marginLeft:4,
-        background:liveOpen?T.indigo:T.indigoDim,
-        border:`1px solid ${liveOpen?T.indigo:T.indigoMid}`,
-        borderRadius:30,padding:"5px 11px",color:liveOpen?"#fff":T.indigo,
-        fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:FONT}}>{t("live")}</button>
+
       {/* Lang toggle */}
       <button onClick={toggleLang} style={{
         marginLeft:6,padding:"4px 9px",border:`1px solid ${T.line}`,borderRadius:30,
@@ -1199,10 +1257,9 @@ function LivePanel({data,setData,liveGuild,setLiveGuild,onClose}){
    APP ROOT
 ══════════════════════════════════════════════════════════════════════════ */
 export default function App(){
-  const [tab,setTab]=useState("dashboard");
+  const [tab,setTab]=useState("counterpick");
   const [data,setData]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [liveOpen,setLiveOpen]=useState(false);
   const [liveGuild,setLiveGuild]=useState("");
   const [importMsg,setImportMsg]=useState("");
   const fileRef=useRef();
@@ -1270,13 +1327,10 @@ export default function App(){
       }
     `}</style>
     <SmartDock tab={tab} setTab={setTab} data={data} onImport={handleImport}
-      liveOpen={liveOpen} setLiveOpen={setLiveOpen} importMsg={importMsg} fileRef={fileRef}/>
-    {liveOpen&&<div style={{paddingTop:72}}>
-      <LivePanel data={data} setData={setData} liveGuild={liveGuild}
-        setLiveGuild={setLiveGuild} onClose={()=>setLiveOpen(false)}/>
-    </div>}
+      importMsg={importMsg} fileRef={fileRef}/>
+
     <div style={{maxWidth:1160,width:"100%",margin:"0 auto",
-      padding:`${liveOpen?14:80}px 14px 40px`,boxSizing:"border-box"}}
+      padding:"80px 14px 40px",boxSizing:"border-box"}}
       className="page-pad">
       {tab==="counterpick"&&<CounterpickPage data={data} liveGuild={liveGuild}/>}
       {tab==="analyse"    &&<AnalysePage    data={data} liveGuild={liveGuild}/>}
@@ -1389,20 +1443,23 @@ function AnalysePage({data,liveGuild}){
     {/* ── LIGNE 2 : Top Offenses + Top Défenses ── */}
     <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <Card>
-        <SH title="Top Offenses de la Guilde" sub="clic → défenses rencontrées"
+        <SH title=t("topOffTitle") sub="clic → défenses rencontrées"
           right={<SliderControl value={offN} onChange={setOffN} max={data.length||2000}/>}/>
         <GhostList items={offStats} max={30} onItemClick={handleOffClick} renderItem={(item,i)=><>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
             fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
-          <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-            whiteSpace:"nowrap",padding:"0 6px"}}>{item.name}</span>
+          <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
+            <div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
+              whiteSpace:"nowrap",marginBottom:3}}>{item.name}</div>
+            <CompoChips compo={item.rawName||item.name} size={16}/>
+          </div>
           <VDScore wins={item.wins} losses={item.losses} total={item.total}/>
           <WRBadge rate={item.wr} small/>
         </>}/>
       </Card>
 
       <Card>
-        <SH title="Top Défenses rencontrées" sub="clic → meilleures offenses"
+        <SH title=t("topDefTitle") sub="clic → meilleures offenses"
           right={<SliderControl value={defN} onChange={setDefN} max={data.length||2000}/>}/>
         <GhostList items={recentDef} max={30} onItemClick={handleDefClick} renderItem={(item,i)=><>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
@@ -1492,7 +1549,7 @@ function Guilde({data}){
             background:view===v?T.indigoDim:"transparent",
             color:view===v?T.indigo:T.ink2,fontSize:12,fontWeight:view===v?600:400,
             cursor:"pointer",fontFamily:FONT}}>
-          {v==="membres"?"Membres":"Rivalités"}
+          {v==="membres"?t("members"):t("rivalries")}
         </button>
       ))}
     </div>
@@ -1503,7 +1560,7 @@ function Guilde({data}){
         <Card>
           <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
             <Inp value={search} onChange={e=>setSearch(e.target.value)}
-              placeholder="Rechercher un pseudo…"
+              placeholder={t("searchPlayer")}
               style={{flex:1,minWidth:160,fontSize:12,padding:"6px 10px"}}/>
             <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
               <span style={{fontSize:10,color:T.ink3}}>min</span>
@@ -1561,7 +1618,7 @@ function Guilde({data}){
         <Card>
           <div style={{marginBottom:12}}>
             <Inp value={guildSearch} onChange={e=>setGuildSearch(e.target.value)}
-              placeholder="Rechercher une guilde…"
+              placeholder={t("searchGuild")}
               style={{fontSize:12,padding:"6px 10px"}}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
@@ -1593,7 +1650,7 @@ function Guilde({data}){
                 })} width={110} height={20}/>
               </div>;
             })}
-            {filteredGuilds.length===0&&<Empty>Aucune guilde trouvée</Empty>}
+            {filteredGuilds.length===0&&<Empty>{t("noGuild")}</Empty>}
           </div>
         </Card>
         {selectedGuild&&<GuildDetail guild={selectedGuild} data={data} onClose={()=>setSelectedGuild(null)}/>}
@@ -1834,7 +1891,7 @@ function DetailCombat({data,setData}){
   };
 
   return <Card>
-    <SH title="Détail combat"
+    <SH title=t("detailTitle")
       right={<div style={{display:"flex",gap:6}}>
         <PrimaryBtn onClick={()=>setShowForm(v=>!v)}>+ Saisir</PrimaryBtn>
         <GhostBtn onClick={()=>exportCSV(filtered)} color={T.indigo}>↓ Export</GhostBtn>
