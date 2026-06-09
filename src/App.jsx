@@ -1574,3 +1574,4 @@ function DetailCombat({data,setData}){
     )}
     <CombatCards rows={filtered.slice().reverse().slice(0,300)}/>
   </Card>;
+}
