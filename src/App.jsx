@@ -13,7 +13,8 @@ async function dbLoad(){
   return (data||[]).map(r=>({
     id:r.id, joueur:r.joueur||"", membreGuilde:r.joueur||"",
     offense:r.offense||"", defense:r.defense||"",
-    offenseRaw:r.offense||"", defenseRaw:r.defense||"",
+    offenseRaw:r.offense_raw||r.offense||"",
+    defenseRaw:r.defense_raw||r.defense||"",
     resultat:r.resultat||"", victoire:r.victoire||"", defaite:r.defaite||"",
     session:r.session||"", date:r.date||"",
     joueurAdverse:r.joueur_adverse||"", guildeAdverse:r.guilde_adverse||"",
@@ -27,6 +28,8 @@ async function dbReplace(rows){
     const { error } = await sb.from("combats").insert(
       rows.slice(i,i+B).map(r=>({
         joueur:r.joueur||"", offense:r.offense||"", defense:r.defense||"",
+        offense_raw:r.offenseRaw||r.offense||"",
+        defense_raw:r.defenseRaw||r.defense||"",
         resultat:r.resultat||"", victoire:r.victoire||"", defaite:r.defaite||"",
         session:r.session||"", date:r.date||"",
         joueur_adverse:r.joueurAdverse||"", guilde_adverse:r.guildeAdverse||"",
