@@ -13,7 +13,8 @@ async function dbLoad(){
   return (data||[]).map(r=>({
     id:r.id, joueur:r.joueur||"", membreGuilde:r.joueur||"",
     offense:r.offense||"", defense:r.defense||"",
-    offenseRaw:r.offense||"", defenseRaw:r.defense||"",
+    offenseRaw:r.offense_raw||r.offense||"",
+    defenseRaw:r.defense_raw||r.defense||"",
     resultat:r.resultat||"", victoire:r.victoire||"", defaite:r.defaite||"",
     session:r.session||"", date:r.date||"",
     joueurAdverse:r.joueur_adverse||"", guildeAdverse:r.guilde_adverse||"",
@@ -27,6 +28,8 @@ async function dbReplace(rows){
     const { error } = await sb.from("combats").insert(
       rows.slice(i,i+B).map(r=>({
         joueur:r.joueur||"", offense:r.offense||"", defense:r.defense||"",
+        offense_raw:r.offenseRaw||r.offense||"",
+        defense_raw:r.defenseRaw||r.defense||"",
         resultat:r.resultat||"", victoire:r.victoire||"", defaite:r.defaite||"",
         session:r.session||"", date:r.date||"",
         joueur_adverse:r.joueurAdverse||"", guilde_adverse:r.guildeAdverse||"",
@@ -178,6 +181,283 @@ function MonsterChip({name,size=22}){
   );
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPOUND NAMES — 269 noms composés Swarfarm, du plus long au plus court
+   Utilisés par extractMonsterNames pour ne pas splitter "Feng Yan", "Mo Long"…
+══════════════════════════════════════════════════════════════════════════ */
+const COMPOUND_NAMES=[
+  "Imperfect Dokkaebi Princess and Sapsaree",
+  "Legion Commander of Retribution",
+  "Frostjade Beast Khi\'zar Kha\'jul",
+  "Legion Commander of Conviction",
+  "Dokkaebi Princess and Sapsaree",
+  "Blazing Beast Khi\'zar Kha\'jul",
+  "Tempest Beast Khi\'zar Kha\'jul",
+  "Legion Commander of Judgment",
+  "Attack Bar Decrease Crystal",
+  "Attack Bar Recharge Crystal",
+  "Chaos Beast Khi\'zar Kha\'jul",
+  "Spires of Ascension Crystal",
+  "Crit Rate Decrease Crystal",
+  "Abyssal Ancient Lich King",
+  "The Witch-king of Angmar",
+  "White Tiger Blade Master",
+  "Imperfect Kung Fu Girl",
+  "Dimensional Minion (Water)",
+  "Strengthen Defense Crystal",
+  "Enraged Dimension Predator",
+  "Dimensional Minion (Wind)",
+  "Strengthen Attack Crystal",
+  "Incarnation of Protection",
+  "Imperfect Nine-tailed Fox",
+  "Dimensional Minion (Fire)",
+  "Abyssal Ancient Tormentor",
+  "Abyssal Legendary Dragon",
+  "Abyssal Ancient Punisher",
+  "Disturb Recovery Crystal",
+  "Imperfect Chakram Dancer",
+  "Magic Order Elementalist",
+  "Imperfect Neostone Agent",
+  "Imperfect Centaur Knight",
+  "Black Tortoise Champion",
+  "Magic Order Swordsinger",
+  "Imperfect Harp Magician",
+  "Incarnation of Vendetta",
+  "Magic Order Enchantress",
+  "Imperfect Magic Knight",
+  "Dessert Kingdom Dragon",
+  "Azure Dragon Swordsman",
+  "Abyssal Ancient Spirit",
+  "Vermilion Bird Dancer",
+  "Abyssal Ancient Giant",
+  "Magic Order Guardian",
+  "Glancing Hit Crystal",
+  "Incarnation of Greed",
+  "Elite Magical Archer",
+  "Pure Vanilla Cookie",
+  "Eunbee and Sapsaree",
+  "White King Angelmon",
+  "Templar Royal Guard",
+  "Templar Elite Guard",
+  "Keeper of Darkness",
+  "Chichi and Friends",
+  "Blue King Angelmon",
+  "Shushu and Friends",
+  "Damee and Sapsaree",
+  "Minji and Sapsaree",
+  "Miruel and Graciah",
+  "Dark King Angelmon",
+  "Gold King Angelmon",
+  "Chacha and Friends",
+  "Ancient Lich King",
+  "Yuna and Sapsaree",
+  "Jaduel and Aepiah",
+  "Karuel and Lanoah",
+  "True Devil Kazuya",
+  "Keeper of Remains",
+  "Red King Angelmon",
+  "Ramael and Judiah",
+  "Red Velvet Dragon",
+  "Sadiel and Zeryah",
+  "Yeji and Sapsaree",
+  "Lulu and Friends",
+  "Lala and Friends",
+  "Power Up Crystal",
+  "Black Tea Bunny",
+  "Keeper of Light",
+  "Keeper of Magic",
+  "Keeper of Water",
+  "Mouth of Sauron",
+  "Martial Cat 2A",
+  "Keeper of Wind",
+  "Keeper of Fire",
+  "Son Zhang Lao",
+  "Lord of Hell",
+  "Kung Fu Girl",
+  "Mei Hou Wang",
+  "Otherworldly Dragon",
+  "Predator\'s Wreckage",
+  "Ancient Intercessor",
+  "Contaminated Dragon",
+  "Dimension Predator",
+  "Twisted Wraithlord",
+  "Imperfect Onimusha",
+  "Imperfect Succubus",
+  "Invincible Crystal",
+  "Imperfect Samurai",
+  "Poisonous Crystal",
+  "Imperfect Vampire",
+  "Inosuke Hashibira",
+  "Lightning Emperor",
+  "Weakening Crystal",
+  "Boomerang Warrior",
+  "Ancient Tormentor",
+  "Hollyberry Cookie",
+  "Neostone Fighter",
+  "Madeleine Cookie",
+  "Brownie Magician",
+  "Legendary Dragon",
+  "Megumi Fushiguro",
+  "Pudding Princess",
+  "Imperfect Undine",
+  "Ancient Guardian",
+  "Zenitsu Agatsuma",
+  "Lollipop Warrior",
+  "Ancient Punisher",
+  "Heihachi Mishima",
+  "Specter Princess",
+  "Beetle Guardian",
+  "Battle Scorpion",
+  "Espresso Cookie",
+  "Mischievous Bat",
+  "Steel Commander",
+  "Gyomei Himejima",
+  "Imperfect Dryad",
+  "Imperfect Horus",
+  "Imperfect Joker",
+  "Imperfect Ninja",
+  "Imperfect Sylph",
+  "Rune Blacksmith",
+  "Nobara Kugisaki",
+  "Nine-tailed Fox",
+  "Mercenary Queen",
+  "High Elemental",
+  "Monster Flower",
+  "Epikion Priest",
+  "Pirate Captain",
+  "Drunken Master",
+  "Penguin Knight",
+  "Chakram Dancer",
+  "Drakan Warrior",
+  "Centaur Knight",
+  "Magical Archer",
+  "Tanjiro Kamado",
+  "Martial Artist",
+  "Super Angelmon",
+  "Medium Crystal",
+  "Ancient Spirit",
+  "Battle Mammoth",
+  "Desert Warrior",
+  "Qitian Dasheng",
+  "White Angelmon",
+  "Neostone Agent",
+  "Kazuya Mishima",
+  "Ryomen Sukuna",
+  "Ancient Giant",
+  "Ancient Mimic",
+  "Arcane Weapon",
+  "Barbaric King",
+  "Blue Angelmon",
+  "Bounty Hunter",
+  "Charger Shark",
+  "Dark Angelmon",
+  "Dice Magician",
+  "Dokkaebi Lord",
+  "Dr. Christoph",
+  "Dragon Knight",
+  "Forest Keeper",
+  "Giant Warrior",
+  "Gold Angelmon",
+  "Harp Magician",
+  "King Angelmon",
+  "Kobold Bomber",
+  "Low Elemental",
+  "Macaron Guard",
+  "Nezuko Kamado",
+  "Nina Williams",
+  "Panda Warrior",
+  "Phantom Thief",
+  "Poison Master",
+  "Qilin Slasher",
+  "Skull Soldier",
+  "Small Crystal",
+  "String Master",
+  "Weapon Master",
+  "Red Angelmon",
+  "Blade Dancer",
+  "Desert Queen",
+  "Devil Maiden",
+  "Surprise Box",
+  "Mystic Witch",
+  "Magic Knight",
+  "Elven Ranger",
+  "Choco Knight",
+  "Paul Phoenix",
+  "Vampire Lord",
+  "Living Armor",
+  "Battle Angel",
+  "Yuji Itadori",
+  "Imp Champion",
+  "Beast Hunter",
+  "Death Knight",
+  "Fire Minion",
+  "Polar Queen",
+  "Fairy Queen",
+  "Light Beast",
+  "Werewolf 2A",
+  "Monkey King",
+  "Silver Tail",
+  "Dr. Richard",
+  "Shadow Claw",
+  "Beast Rider",
+  "Sniper Mk.I",
+  "Cannon Girl",
+  "Martial Cat",
+  "Horned Frog",
+  "Grim Reaper",
+  "Sea Emperor",
+  "Satoru Gojo",
+  "Occult Girl",
+  "Tomb Warden",
+  "Twin Angels",
+  "Night Fang",
+  "Sky Dancer",
+  "Sky Surfer",
+  "Maned Boar",
+  "Warbear 2A",
+  "King Slime",
+  "Jin Kazama",
+  "Wind Beast",
+  "Inugami 2A",
+  "Griffon 2A",
+  "Fire Beast",
+  "Fairy King",
+  "Elder Horn",
+  "Dual Blade",
+  "Dr. Plasma",
+  "Dr. Matteo",
+  "Dr. Albert",
+  "Dark Beast",
+  "Beast Monk",
+  "Art Master",
+  "Ice Beast",
+  "Xiong Fei",
+  "Ling Ling",
+  "Xiao Ling",
+  "Dr. Felix",
+  "Xiao Chun",
+  "Hell Lady",
+  "Tian Lang",
+  "Demon Bag",
+  "Xing Zhe",
+  "Fairy 2A",
+  "Feng Yan",
+  "Cow Girl",
+  "Hong Hua",
+  "M. BISON",
+  "Xiao Lin",
+  "Wei Shin",
+  "Pixie 2A",
+  "Tien Qin",
+  "Old Wood",
+  "Mi Ying",
+  "Mo Long",
+  "Liu Mei",
+  "Lob Ear",
+  "Shi Hou"
+].sort((a,b)=>b.split(" ").length-a.split(" ").length);
+
 function extractMonsterNames(compoRaw){
   if(!compoRaw)return[];
   const words=compoRaw.trim().split(/\s+/).filter(w=>w.length>=1);
@@ -185,15 +465,31 @@ function extractMonsterNames(compoRaw){
   let i=0;
   while(i<words.length){
     let matched=false;
+    // 1. Teste les noms composés connus (liste statique, du plus long au plus court)
+    for(const compound of COMPOUND_NAMES){
+      const cWords=compound.split(" ");
+      const len=cWords.length;
+      if(i+len>words.length)continue;
+      const slice=words.slice(i,i+len).join(" ");
+      if(slice.toLowerCase()===compound.toLowerCase()){
+        result.push(compound);
+        i+=len;
+        matched=true;
+        break;
+      }
+    }
+    if(matched)continue;
+    // 2. Fallback : teste dans le cache Supabase (quadrigramme → trigramme → bigramme → mot seul)
     for(let len=Math.min(4,words.length-i);len>=1;len--){
       const candidate=words.slice(i,i+len).join(" ");
-      if(len===1||MONSTER_CACHE.has(candidate)){
+      if(MONSTER_CACHE.has(candidate)){
         result.push(candidate);
         i+=len;
         matched=true;
         break;
       }
     }
+    // Si mot seul non reconnu dans la DB → on l'ignore (évite "Wind", "Fire", "Dark" seuls)
     if(!matched)i++;
   }
   return result;
@@ -395,7 +691,7 @@ function SH({title,sub,right}){
 function Empty({children}){
   return <div style={{padding:"16px 0",textAlign:"center",color:T.ink3,fontSize:12}}>{children}</div>;
 }
-const ROW={display:"flex",alignItems:"center",gap:8,padding:"7px 2px",borderBottom:`1px solid rgba(255,255,255,0.08)`};
+const ROW={display:"flex",alignItems:"center",gap:8,padding:"8px 2px",borderBottom:`1px solid rgba(255,255,255,0.08)`};
 
 function SliderControl({value,onChange,max}){
   return <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -443,38 +739,84 @@ function Overlay({onClick}){
     background:"rgba(0,0,0,0.65)",backdropFilter:"blur(4px)"}}/>;
 }
 
-function OffensesPanel({title,items,onClose}){
+function OffensesPanel({title,items,onClose,defRaw,offRaw,defName,offName}){
+  const [minWR,setMinWR]=useState(75);
+  const [minUses,setMinUses]=useState(2);
+
+  const filtered=useMemo(()=>
+    items.filter(o=>o.wr>=minWR&&o.total>=minUses),
+  [items,minWR,minUses]);
+
   return <div className="panel-fixed" style={{position:"fixed",top:"50%",left:"50%",
     transform:"translate(-50%,-50%)",zIndex:2000,
     background:T.s1,border:`1px solid ${T.lineM}`,borderRadius:14,
-    padding:0,width:"min(520px,96vw)",maxHeight:"82vh",
+    padding:0,width:"min(540px,96vw)",maxHeight:"86vh",
     display:"flex",flexDirection:"column",
     boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-      padding:"14px 18px",borderBottom:`1px solid ${T.line}`}}>
-      <div style={{fontSize:12,fontWeight:600,color:T.ink1,paddingRight:12}}>{title}</div>
-      <button onClick={onClose} style={{background:"none",border:"none",
-        color:T.ink3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px"}}>×</button>
+
+    {/* Header — défense cible */}
+    <div style={{padding:"12px 18px",borderBottom:`1px solid ${T.line}`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:defRaw||offRaw?8:0}}>
+        {title&&<div style={{fontSize:12,fontWeight:600,color:T.ink1}}>{title}</div>}
+        <button onClick={onClose} style={{background:"none",border:"none",
+          color:T.ink3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px",
+          flexShrink:0,marginLeft:"auto"}}>×</button>
+      </div>
+      {defRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4}}>
+        <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>Défense :</span>
+        <CompoChips compo={defRaw} size={20}/>
+      </div>}
+      {offRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4}}>
+        <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>Offense :</span>
+        <CompoChips compo={offRaw} size={20}/>
+      </div>}
+
+      {/* Filtres WR + Utilisation */}
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",
+        marginTop:10,paddingTop:10,borderTop:`1px solid ${T.line}`}}>
+        <span style={{fontSize:10,color:T.ink3}}>WR≥</span>
+        <input type="number" min={0} max={100} value={minWR}
+          onChange={e=>setMinWR(+e.target.value)}
+          style={{width:48,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
+            color:T.ink1,padding:"4px 6px",fontSize:11,outline:"none",textAlign:"center"}}/>
+        <input type="range" min={0} max={100} step={5} value={minWR}
+          onChange={e=>setMinWR(+e.target.value)}
+          style={{width:80,accentColor:T.indigo}}/>
+        <div style={{width:1,height:14,background:T.line}}/>
+        <span style={{fontSize:10,color:T.ink3}}>Util≥</span>
+        <input type="number" min={1} max={50} value={minUses}
+          onChange={e=>setMinUses(+e.target.value)}
+          style={{width:44,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
+            color:T.ink1,padding:"4px 6px",fontSize:11,outline:"none",textAlign:"center"}}/>
+        <span style={{fontSize:10,color:T.ink3,marginLeft:"auto",fontVariantNumeric:"tabular-nums"}}>
+          {filtered.length}/{items.length}
+        </span>
+      </div>
     </div>
-    <div style={{overflowY:"auto",padding:"8px 0"}}>
-      {items.map((o,i)=>(
-        <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-            <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
-            <span style={{flex:1,fontSize:12,color:T.ink1,fontWeight:600,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{o.name}</span>
-            <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
-            <WRBadge rate={o.wr}/>
-            <CopyBtn text={o.rawName||o.name}/>
+
+    {/* Liste filtrée */}
+    <div style={{overflowY:"auto",padding:"8px 0",flex:1}}>
+      {filtered.length===0
+        ?<Empty>Aucun résultat — baisse WR min ou Utilisation min</Empty>
+        :filtered.map((o,i)=>(
+          <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+              <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <CompoChips compo={o.rawName||o.name} size={20}/>
+              </div>
+              <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
+              <WRBadge rate={o.wr}/>
+              <CopyBtn text={o.rawName||o.name}/>
+            </div>
           </div>
-          <div style={{paddingLeft:28}}>
-            <CompoChips compo={o.rawName||o.name} size={18}/>
-          </div>
-        </div>
-      ))}
+        ))}
     </div>
-    <div style={{padding:"8px 18px",borderTop:`1px solid ${T.line}`}}>
-      <span style={{fontSize:10,color:T.ink3}}>{items.length} résultats</span>
+
+    <div style={{padding:"8px 18px",borderTop:`1px solid ${T.line}`,
+      display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span style={{fontSize:10,color:T.ink3}}>{filtered.length} offense{filtered.length>1?"s":""}</span>
+      <GhostBtn small onClick={()=>{setMinWR(75);setMinUses(2);}}>↺ Reset</GhostBtn>
     </div>
   </div>;
 }
@@ -536,18 +878,19 @@ function OffenseCard({r,idx,histWarning,medals,isVariant}){
           {ELEM_ICON[r.mainElem]||"~"} {t("axeVariant")}
         </div>
       )}
-      <div style={{fontSize:12,marginBottom:3,color:T.ink3}}>{medals[idx]||`#${idx+1}`}</div>
-      <div style={{fontSize:12,fontWeight:600,color:T.ink1,marginBottom:6,
-        lineHeight:1.35,paddingRight:isVariant?80:0}}>{r.name}</div>
-      <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+      <div style={{fontSize:12,marginBottom:6,color:T.ink3}}>{medals[idx]||`#${idx+1}`}</div>
+      {/* Chips uniquement — pas de nom texte trié */}
+      <div style={{marginBottom:8}}>
+        <CompoChips compo={r.rawName||r.name}/>
+      </div>
+      <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
         <WRBadge rate={r.wr}/>
         <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
       </div>
       {idx===0&&histWarning&&(
         <div style={{fontSize:10,color:T.red,padding:"2px 6px",
-          background:T.redDim,borderRadius:4,marginBottom:6}}>{histWarning}</div>
+          background:T.redDim,borderRadius:4,marginBottom:4}}>{histWarning}</div>
       )}
-      <CompoChips compo={r.rawName||r.name}/>
       <div style={{display:"flex",justifyContent:"flex-end",marginTop:6}}>
         <CopyBtn text={r.rawName||r.name}/>
       </div>
@@ -689,11 +1032,15 @@ function SearchWidget({data,liveGuild}){
             <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",
               letterSpacing:1,marginBottom:6}}>{t("others")}</div>
             {directResults.slice(3,12).map(r=>(
-              <div key={r.name} style={ROW}>
-                <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
-                <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-                <WRBadge rate={r.wr}/>
-                <CopyBtn text={r.rawName||r.name}/>
+              <div key={r.name} style={{...ROW,alignItems:"flex-start",paddingTop:8,paddingBottom:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CompoChips compo={r.rawName||r.name} size={18}/>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+                  <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+                  <WRBadge rate={r.wr}/>
+                  <CopyBtn text={r.rawName||r.name}/>
+                </div>
               </div>
             ))}
           </div>
@@ -726,12 +1073,16 @@ function SearchWidget({data,liveGuild}){
         {elemResults.slice(3).length>0&&(
           <div style={{marginTop:10}}>
             {elemResults.slice(3,8).map(r=>(
-              <div key={r.name} style={ROW}>
-                <span style={{fontSize:9,color:T.amber,flexShrink:0}}>{ELEM_ICON[r.mainElem]||"~"}</span>
-                <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingLeft:4}}>{r.name}</span>
-                <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-                <WRBadge rate={r.wr}/>
-                <CopyBtn text={r.rawName||r.name}/>
+              <div key={r.name} style={{...ROW,alignItems:"flex-start",paddingTop:8,paddingBottom:8}}>
+                <span style={{fontSize:9,color:T.amber,flexShrink:0,paddingTop:4}}>{ELEM_ICON[r.mainElem]||"~"}</span>
+                <div style={{flex:1,minWidth:0,paddingLeft:4}}>
+                  <CompoChips compo={r.rawName||r.name} size={18}/>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+                  <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+                  <WRBadge rate={r.wr}/>
+                  <CopyBtn text={r.rawName||r.name}/>
+                </div>
               </div>
             ))}
           </div>
@@ -791,13 +1142,15 @@ function ExpandableDef({s,data,isOpen,onOpen,dimmed}){
         {offenses.length===0
           ?<div style={{fontSize:11,color:T.ink3}}>{t("noVictory")}</div>
           :offenses.map(o=>(
-            <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,
-              padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
-              <span style={{flex:1,fontSize:11,color:T.ink2,overflow:"hidden",
-                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
-              <span style={{fontSize:10,color:T.green,fontVariantNumeric:"tabular-nums"}}>{o.wins}V</span>
-              <span style={{fontSize:10,color:T.red,fontVariantNumeric:"tabular-nums"}}>{o.losses}D</span>
-              <WRBadge rate={o.wr} small/>
+            <div key={o.name} style={{padding:"6px 0",borderBottom:`1px solid ${T.line}`}}>
+              <div style={{marginBottom:4}}>
+                <CompoChips compo={o.rawName||o.name} size={18}/>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:10,color:T.green,fontVariantNumeric:"tabular-nums"}}>{o.wins}V</span>
+                <span style={{fontSize:10,color:T.red,fontVariantNumeric:"tabular-nums"}}>{o.losses}D</span>
+                <WRBadge rate={o.wr} small/>
+              </div>
             </div>
           ))}
       </div>
@@ -915,7 +1268,7 @@ export default function App(){
   const [tab,setTab]=useState("counterpick");
   const [data,setData]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [liveGuild]=useState("");
+  const liveGuild="";
   const [importMsg,setImportMsg]=useState("");
   const fileRef=useRef();
 
@@ -1027,9 +1380,11 @@ function CounterpickPage({data,liveGuild}){
    ANALYSE PAGE
 ══════════════════════════════════════════════════════════════════════════ */
 function AnalysePage({data}){
+  const [globalN,setGlobalN]=useState(1250);
   const [offN,setOffN]=useState(1250);
   const [defN,setDefN]=useState(1250);
   const [worstN,setWorstN]=useState(1250);
+  const setAllN=v=>{setGlobalN(v);setOffN(v);setDefN(v);setWorstN(v);};
   const [openDef,setOpenDef]=useState(null);
   const [panel,setPanel]=useState(null);
 
@@ -1050,7 +1405,7 @@ function AnalysePage({data}){
     });
     const items=Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total),reliability:wilson(x.wins,x.total)}))
       .sort((a,b)=>b.reliability-a.reliability);
-    setPanel({title:`Offenses vs : ${item.name}`,items});
+    setPanel({title:null,defName:item.name,defRaw:item.rawName||item.name,items});
   },[data]);
 
   const handleOffClick=useCallback(item=>{
@@ -1060,11 +1415,20 @@ function AnalysePage({data}){
       map[d.defense].total++;if(d.victoire)map[d.defense].wins++;else map[d.defense].losses++;
     });
     const items=Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total)})).sort((a,b)=>b.total-a.total);
-    setPanel({title:`Défenses rencontrées avec : ${item.name}`,items});
+    setPanel({title:null,offName:item.name,offRaw:item.rawName||item.name,items});
   },[data]);
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
-    {panel&&<><Overlay onClick={()=>setPanel(null)}/><OffensesPanel title={panel.title} items={panel.items} onClose={()=>setPanel(null)}/></>}
+    {panel&&<><Overlay onClick={()=>setPanel(null)}/><OffensesPanel title={panel.title} defRaw={panel.defRaw} offRaw={panel.offRaw} items={panel.items} onClose={()=>setPanel(null)}/></>}
+
+    {/* Curseur global */}
+    <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,
+      padding:"10px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,color:T.ink2,fontWeight:600}}>Profondeur globale</span>
+      <SliderControl value={globalN} onChange={setAllN} max={data.length||2000}/>
+      <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums"}}>
+        {globalN} derniers combats — ajuste individuellement avec chaque curseur</span>
+    </div>
 
     <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <Card>
@@ -1074,9 +1438,7 @@ function AnalysePage({data}){
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
             fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
           <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
-            <div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-              whiteSpace:"nowrap",marginBottom:3}}>{item.name}</div>
-            <CompoChips compo={item.rawName||item.name} size={16}/>
+            <CompoChips compo={item.rawName||item.name} size={18}/>
           </div>
           <VDScore wins={item.wins} losses={item.losses} total={item.total}/>
           <WRBadge rate={item.wr} small/>
@@ -1088,8 +1450,9 @@ function AnalysePage({data}){
         <GhostList items={recentDef} max={30} onItemClick={handleDefClick} renderItem={(item,i)=><>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
             fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
-          <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-            whiteSpace:"nowrap",padding:"0 6px"}}>{item.name}</span>
+          <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
+            <CompoChips compo={item.rawName||item.name} size={18}/>
+          </div>
           <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",flexShrink:0}}>
             {item.total}att</span>
         </>}/>
@@ -1159,7 +1522,7 @@ function PlayerCard({player,data,onClose}){
       {worstDefs.slice(0,7).map(d=>(
         <div key={d.name} style={{display:"flex",alignItems:"center",gap:8,
           padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
-          <span style={{flex:1,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+          <div style={{flex:1,minWidth:0}}><CompoChips compo={d.rawName||d.name} size={18}/></div>
           <div style={{width:32,height:3,background:T.s3,borderRadius:2,flexShrink:0}}>
             <div style={{width:`${Math.min(d.lossRate,100)}%`,height:"100%",
               background:d.lossRate>=70?T.red:T.amber,borderRadius:2}}/>
@@ -1175,12 +1538,13 @@ function PlayerCard({player,data,onClose}){
         {t("offenses")}
       </div>
       {topOffs.slice(0,6).map((o,i)=>(
-        <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,
-          padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
-          <span style={{color:T.ink3,fontSize:10,width:14,flexShrink:0}}>{i+1}</span>
-          <span style={{flex:1,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
-          <span style={{fontSize:11,color:T.ink3,fontVariantNumeric:"tabular-nums"}}>{o.total}att</span>
-          <WRBadge rate={o.wr} small/>
+        <div key={o.name} style={{padding:"6px 0",borderBottom:`1px solid ${T.line}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+            <span style={{color:T.ink3,fontSize:10,width:14,flexShrink:0}}>{i+1}</span>
+            <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",marginLeft:"auto"}}>{o.total}att</span>
+            <WRBadge rate={o.wr} small/>
+          </div>
+          <CompoChips compo={o.rawName||o.name} size={18}/>
         </div>
       ))}
     </div>
@@ -1222,8 +1586,9 @@ function GuildDetail({guild,data,onClose}){
         <div key={d.name} style={{display:"flex",alignItems:"center",gap:8,
           padding:"6px 2px",borderBottom:`1px solid ${T.line}`}}>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0}}>{i+1}</span>
-          <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-            whiteSpace:"nowrap",padding:"0 6px"}}>{d.name}</span>
+          <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
+            <CompoChips compo={d.rawName||d.name} size={18}/>
+          </div>
           <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{d.total}att</span>
           <span style={{fontSize:11,color:T.red,fontWeight:600,
             fontVariantNumeric:"tabular-nums",flexShrink:0}}>{d.lossRate}%✗</span>
@@ -1442,10 +1807,11 @@ function CombatCards({rows}){
                 {d.victoire?`✓ ${t("victory")}`:` ✗ ${t("defeat")}`}
               </span>
             </div>
-            <div style={{fontSize:12,color:T.ink1,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3}}>{d.offense}</div>
-            <div style={{fontSize:11,color:T.ink3,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>vs {d.defense}</div>
+            <CompoChips compo={d.offenseRaw||d.offense} size={18}/>
+            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:4,flexWrap:"wrap"}}>
+              <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>vs</span>
+              <CompoChips compo={d.defenseRaw||d.defense} size={16}/>
+            </div>
             {isOpen&&(
               <div style={{marginTop:10,paddingTop:10,
                 borderTop:`1px solid ${T.line}`,display:"flex",flexDirection:"column",gap:6}}>
@@ -1574,3 +1940,4 @@ function DetailCombat({data,setData}){
     )}
     <CombatCards rows={filtered.slice().reverse().slice(0,300)}/>
   </Card>;
+}
