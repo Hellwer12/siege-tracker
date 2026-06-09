@@ -756,14 +756,12 @@ function OffensesPanel({title,items,onClose}){
         <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
             <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
-            <span style={{flex:1,fontSize:12,color:T.ink1,fontWeight:600,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{o.name}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <CompoChips compo={o.rawName||o.name} size={20}/>
+            </div>
             <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
             <WRBadge rate={o.wr}/>
             <CopyBtn text={o.rawName||o.name}/>
-          </div>
-          <div style={{paddingLeft:28}}>
-            <CompoChips compo={o.rawName||o.name} size={18}/>
           </div>
         </div>
       ))}
@@ -831,18 +829,19 @@ function OffenseCard({r,idx,histWarning,medals,isVariant}){
           {ELEM_ICON[r.mainElem]||"~"} {t("axeVariant")}
         </div>
       )}
-      <div style={{fontSize:12,marginBottom:3,color:T.ink3}}>{medals[idx]||`#${idx+1}`}</div>
-      <div style={{fontSize:12,fontWeight:600,color:T.ink1,marginBottom:6,
-        lineHeight:1.35,paddingRight:isVariant?80:0}}>{r.name}</div>
-      <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+      <div style={{fontSize:12,marginBottom:6,color:T.ink3}}>{medals[idx]||`#${idx+1}`}</div>
+      {/* Chips uniquement — pas de nom texte trié */}
+      <div style={{marginBottom:8}}>
+        <CompoChips compo={r.rawName||r.name}/>
+      </div>
+      <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
         <WRBadge rate={r.wr}/>
         <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
       </div>
       {idx===0&&histWarning&&(
         <div style={{fontSize:10,color:T.red,padding:"2px 6px",
-          background:T.redDim,borderRadius:4,marginBottom:6}}>{histWarning}</div>
+          background:T.redDim,borderRadius:4,marginBottom:4}}>{histWarning}</div>
       )}
-      <CompoChips compo={r.rawName||r.name}/>
       <div style={{display:"flex",justifyContent:"flex-end",marginTop:6}}>
         <CopyBtn text={r.rawName||r.name}/>
       </div>
@@ -984,11 +983,15 @@ function SearchWidget({data,liveGuild}){
             <div style={{fontSize:10,color:T.ink3,textTransform:"uppercase",
               letterSpacing:1,marginBottom:6}}>{t("others")}</div>
             {directResults.slice(3,12).map(r=>(
-              <div key={r.name} style={ROW}>
-                <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
-                <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-                <WRBadge rate={r.wr}/>
-                <CopyBtn text={r.rawName||r.name}/>
+              <div key={r.name} style={{...ROW,alignItems:"flex-start",paddingTop:8,paddingBottom:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <CompoChips compo={r.rawName||r.name} size={18}/>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+                  <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+                  <WRBadge rate={r.wr}/>
+                  <CopyBtn text={r.rawName||r.name}/>
+                </div>
               </div>
             ))}
           </div>
@@ -1021,12 +1024,16 @@ function SearchWidget({data,liveGuild}){
         {elemResults.slice(3).length>0&&(
           <div style={{marginTop:10}}>
             {elemResults.slice(3,8).map(r=>(
-              <div key={r.name} style={ROW}>
-                <span style={{fontSize:9,color:T.amber,flexShrink:0}}>{ELEM_ICON[r.mainElem]||"~"}</span>
-                <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingLeft:4}}>{r.name}</span>
-                <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
-                <WRBadge rate={r.wr}/>
-                <CopyBtn text={r.rawName||r.name}/>
+              <div key={r.name} style={{...ROW,alignItems:"flex-start",paddingTop:8,paddingBottom:8}}>
+                <span style={{fontSize:9,color:T.amber,flexShrink:0,paddingTop:4}}>{ELEM_ICON[r.mainElem]||"~"}</span>
+                <div style={{flex:1,minWidth:0,paddingLeft:4}}>
+                  <CompoChips compo={r.rawName||r.name} size={18}/>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+                  <VDScore wins={r.wins} losses={r.losses} total={r.total}/>
+                  <WRBadge rate={r.wr}/>
+                  <CopyBtn text={r.rawName||r.name}/>
+                </div>
               </div>
             ))}
           </div>
@@ -1086,13 +1093,15 @@ function ExpandableDef({s,data,isOpen,onOpen,dimmed}){
         {offenses.length===0
           ?<div style={{fontSize:11,color:T.ink3}}>{t("noVictory")}</div>
           :offenses.map(o=>(
-            <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,
-              padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
-              <span style={{flex:1,fontSize:11,color:T.ink2,overflow:"hidden",
-                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
-              <span style={{fontSize:10,color:T.green,fontVariantNumeric:"tabular-nums"}}>{o.wins}V</span>
-              <span style={{fontSize:10,color:T.red,fontVariantNumeric:"tabular-nums"}}>{o.losses}D</span>
-              <WRBadge rate={o.wr} small/>
+            <div key={o.name} style={{padding:"6px 0",borderBottom:`1px solid ${T.line}`}}>
+              <div style={{marginBottom:4}}>
+                <CompoChips compo={o.rawName||o.name} size={18}/>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:10,color:T.green,fontVariantNumeric:"tabular-nums"}}>{o.wins}V</span>
+                <span style={{fontSize:10,color:T.red,fontVariantNumeric:"tabular-nums"}}>{o.losses}D</span>
+                <WRBadge rate={o.wr} small/>
+              </div>
             </div>
           ))}
       </div>
@@ -1369,9 +1378,7 @@ function AnalysePage({data}){
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
             fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
           <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
-            <div style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-              whiteSpace:"nowrap",marginBottom:3}}>{item.name}</div>
-            <CompoChips compo={item.rawName||item.name} size={16}/>
+            <CompoChips compo={item.rawName||item.name} size={18}/>
           </div>
           <VDScore wins={item.wins} losses={item.losses} total={item.total}/>
           <WRBadge rate={item.wr} small/>
@@ -1383,8 +1390,9 @@ function AnalysePage({data}){
         <GhostList items={recentDef} max={30} onItemClick={handleDefClick} renderItem={(item,i)=><>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0,
             fontVariantNumeric:"tabular-nums"}}>{i+1}</span>
-          <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-            whiteSpace:"nowrap",padding:"0 6px"}}>{item.name}</span>
+          <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
+            <CompoChips compo={item.rawName||item.name} size={18}/>
+          </div>
           <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",flexShrink:0}}>
             {item.total}att</span>
         </>}/>
@@ -1454,7 +1462,7 @@ function PlayerCard({player,data,onClose}){
       {worstDefs.slice(0,7).map(d=>(
         <div key={d.name} style={{display:"flex",alignItems:"center",gap:8,
           padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
-          <span style={{flex:1,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+          <div style={{flex:1,minWidth:0}}><CompoChips compo={d.rawName||d.name} size={18}/></div>
           <div style={{width:32,height:3,background:T.s3,borderRadius:2,flexShrink:0}}>
             <div style={{width:`${Math.min(d.lossRate,100)}%`,height:"100%",
               background:d.lossRate>=70?T.red:T.amber,borderRadius:2}}/>
@@ -1470,12 +1478,13 @@ function PlayerCard({player,data,onClose}){
         {t("offenses")}
       </div>
       {topOffs.slice(0,6).map((o,i)=>(
-        <div key={o.name} style={{display:"flex",alignItems:"center",gap:8,
-          padding:"5px 0",borderBottom:`1px solid ${T.line}`}}>
-          <span style={{color:T.ink3,fontSize:10,width:14,flexShrink:0}}>{i+1}</span>
-          <span style={{flex:1,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.name}</span>
-          <span style={{fontSize:11,color:T.ink3,fontVariantNumeric:"tabular-nums"}}>{o.total}att</span>
-          <WRBadge rate={o.wr} small/>
+        <div key={o.name} style={{padding:"6px 0",borderBottom:`1px solid ${T.line}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+            <span style={{color:T.ink3,fontSize:10,width:14,flexShrink:0}}>{i+1}</span>
+            <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",marginLeft:"auto"}}>{o.total}att</span>
+            <WRBadge rate={o.wr} small/>
+          </div>
+          <CompoChips compo={o.rawName||o.name} size={18}/>
         </div>
       ))}
     </div>
@@ -1517,8 +1526,9 @@ function GuildDetail({guild,data,onClose}){
         <div key={d.name} style={{display:"flex",alignItems:"center",gap:8,
           padding:"6px 2px",borderBottom:`1px solid ${T.line}`}}>
           <span style={{color:T.ink3,width:18,fontSize:10,textAlign:"right",flexShrink:0}}>{i+1}</span>
-          <span style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",
-            whiteSpace:"nowrap",padding:"0 6px"}}>{d.name}</span>
+          <div style={{flex:1,minWidth:0,padding:"0 6px"}}>
+            <CompoChips compo={d.rawName||d.name} size={18}/>
+          </div>
           <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{d.total}att</span>
           <span style={{fontSize:11,color:T.red,fontWeight:600,
             fontVariantNumeric:"tabular-nums",flexShrink:0}}>{d.lossRate}%✗</span>
@@ -1737,10 +1747,9 @@ function CombatCards({rows}){
                 {d.victoire?`✓ ${t("victory")}`:` ✗ ${t("defeat")}`}
               </span>
             </div>
-            <div style={{fontSize:12,color:T.ink1,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3}}>{d.offense}</div>
+            <CompoChips compo={d.offenseRaw||d.offense} size={18}/>
             <div style={{fontSize:11,color:T.ink3,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>vs {d.defense}</div>
+              textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:3}}>vs {d.defense}</div>
             {isOpen&&(
               <div style={{marginTop:10,paddingTop:10,
                 borderTop:`1px solid ${T.line}`,display:"flex",flexDirection:"column",gap:6}}>
