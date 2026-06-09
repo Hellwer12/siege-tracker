@@ -740,44 +740,83 @@ function Overlay({onClick}){
 }
 
 function OffensesPanel({title,items,onClose,defRaw,offRaw,defName,offName}){
+  const [minWR,setMinWR]=useState(75);
+  const [minUses,setMinUses]=useState(2);
+
+  const filtered=useMemo(()=>
+    items.filter(o=>o.wr>=minWR&&o.total>=minUses),
+  [items,minWR,minUses]);
+
   return <div className="panel-fixed" style={{position:"fixed",top:"50%",left:"50%",
     transform:"translate(-50%,-50%)",zIndex:2000,
     background:T.s1,border:`1px solid ${T.lineM}`,borderRadius:14,
-    padding:0,width:"min(520px,96vw)",maxHeight:"82vh",
+    padding:0,width:"min(540px,96vw)",maxHeight:"86vh",
     display:"flex",flexDirection:"column",
     boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-      padding:"12px 18px",borderBottom:`1px solid ${T.line}`,gap:12}}>
-      <div style={{flex:1,minWidth:0}}>
-        {title&&<div style={{fontSize:12,fontWeight:600,color:T.ink1,marginBottom:4}}>{title}</div>}
-        {defRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-          <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>vs</span>
-          <CompoChips compo={defRaw} size={20}/>
-        </div>}
-        {offRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-          <CompoChips compo={offRaw} size={20}/>
-        </div>}
+
+    {/* Header — défense cible */}
+    <div style={{padding:"12px 18px",borderBottom:`1px solid ${T.line}`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:defRaw||offRaw?8:0}}>
+        {title&&<div style={{fontSize:12,fontWeight:600,color:T.ink1}}>{title}</div>}
+        <button onClick={onClose} style={{background:"none",border:"none",
+          color:T.ink3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px",
+          flexShrink:0,marginLeft:"auto"}}>×</button>
       </div>
-      <button onClick={onClose} style={{background:"none",border:"none",
-        color:T.ink3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px",flexShrink:0}}>×</button>
+      {defRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4}}>
+        <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>Défense :</span>
+        <CompoChips compo={defRaw} size={20}/>
+      </div>}
+      {offRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:4}}>
+        <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>Offense :</span>
+        <CompoChips compo={offRaw} size={20}/>
+      </div>}
+
+      {/* Filtres WR + Utilisation */}
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",
+        marginTop:10,paddingTop:10,borderTop:`1px solid ${T.line}`}}>
+        <span style={{fontSize:10,color:T.ink3}}>WR≥</span>
+        <input type="number" min={0} max={100} value={minWR}
+          onChange={e=>setMinWR(+e.target.value)}
+          style={{width:48,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
+            color:T.ink1,padding:"4px 6px",fontSize:11,outline:"none",textAlign:"center"}}/>
+        <input type="range" min={0} max={100} step={5} value={minWR}
+          onChange={e=>setMinWR(+e.target.value)}
+          style={{width:80,accentColor:T.indigo}}/>
+        <div style={{width:1,height:14,background:T.line}}/>
+        <span style={{fontSize:10,color:T.ink3}}>Util≥</span>
+        <input type="number" min={1} max={50} value={minUses}
+          onChange={e=>setMinUses(+e.target.value)}
+          style={{width:44,background:T.s3,border:`1px solid ${T.line}`,borderRadius:6,
+            color:T.ink1,padding:"4px 6px",fontSize:11,outline:"none",textAlign:"center"}}/>
+        <span style={{fontSize:10,color:T.ink3,marginLeft:"auto",fontVariantNumeric:"tabular-nums"}}>
+          {filtered.length}/{items.length}
+        </span>
+      </div>
     </div>
-    <div style={{overflowY:"auto",padding:"8px 0"}}>
-      {items.map((o,i)=>(
-        <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-            <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <CompoChips compo={o.rawName||o.name} size={20}/>
+
+    {/* Liste filtrée */}
+    <div style={{overflowY:"auto",padding:"8px 0",flex:1}}>
+      {filtered.length===0
+        ?<Empty>Aucun résultat — baisse WR min ou Utilisation min</Empty>
+        :filtered.map((o,i)=>(
+          <div key={o.name} style={{padding:"9px 18px",borderBottom:`1px solid ${T.line}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+              <span style={{color:T.ink3,width:20,fontSize:11,textAlign:"right",flexShrink:0}}>{i+1}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <CompoChips compo={o.rawName||o.name} size={20}/>
+              </div>
+              <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
+              <WRBadge rate={o.wr}/>
+              <CopyBtn text={o.rawName||o.name}/>
             </div>
-            <VDScore wins={o.wins} losses={o.losses||o.total-o.wins} total={o.total}/>
-            <WRBadge rate={o.wr}/>
-            <CopyBtn text={o.rawName||o.name}/>
           </div>
-        </div>
-      ))}
+        ))}
     </div>
-    <div style={{padding:"8px 18px",borderTop:`1px solid ${T.line}`}}>
-      <span style={{fontSize:10,color:T.ink3}}>{items.length} résultats</span>
+
+    <div style={{padding:"8px 18px",borderTop:`1px solid ${T.line}`,
+      display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span style={{fontSize:10,color:T.ink3}}>{filtered.length} offense{filtered.length>1?"s":""}</span>
+      <GhostBtn small onClick={()=>{setMinWR(75);setMinUses(2);}}>↺ Reset</GhostBtn>
     </div>
   </div>;
 }
