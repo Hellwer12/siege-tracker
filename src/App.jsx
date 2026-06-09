@@ -482,13 +482,14 @@ function extractMonsterNames(compoRaw){
     // 2. Fallback : teste dans le cache Supabase (quadrigramme → trigramme → bigramme → mot seul)
     for(let len=Math.min(4,words.length-i);len>=1;len--){
       const candidate=words.slice(i,i+len).join(" ");
-      if(len===1||MONSTER_CACHE.has(candidate)){
+      if(MONSTER_CACHE.has(candidate)){
         result.push(candidate);
         i+=len;
         matched=true;
         break;
       }
     }
+    // Si mot seul non reconnu dans la DB → on l'ignore (évite "Wind", "Fire", "Dark" seuls)
     if(!matched)i++;
   }
   return result;
@@ -690,7 +691,7 @@ function SH({title,sub,right}){
 function Empty({children}){
   return <div style={{padding:"16px 0",textAlign:"center",color:T.ink3,fontSize:12}}>{children}</div>;
 }
-const ROW={display:"flex",alignItems:"center",gap:8,padding:"7px 2px",borderBottom:`1px solid rgba(255,255,255,0.08)`};
+const ROW={display:"flex",alignItems:"center",gap:8,padding:"8px 2px",borderBottom:`1px solid rgba(255,255,255,0.08)`};
 
 function SliderControl({value,onChange,max}){
   return <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -738,7 +739,7 @@ function Overlay({onClick}){
     background:"rgba(0,0,0,0.65)",backdropFilter:"blur(4px)"}}/>;
 }
 
-function OffensesPanel({title,items,onClose}){
+function OffensesPanel({title,items,onClose,defRaw,offRaw,defName,offName}){
   return <div className="panel-fixed" style={{position:"fixed",top:"50%",left:"50%",
     transform:"translate(-50%,-50%)",zIndex:2000,
     background:T.s1,border:`1px solid ${T.lineM}`,borderRadius:14,
@@ -746,10 +747,19 @@ function OffensesPanel({title,items,onClose}){
     display:"flex",flexDirection:"column",
     boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-      padding:"14px 18px",borderBottom:`1px solid ${T.line}`}}>
-      <div style={{fontSize:12,fontWeight:600,color:T.ink1,paddingRight:12}}>{title}</div>
+      padding:"12px 18px",borderBottom:`1px solid ${T.line}`,gap:12}}>
+      <div style={{flex:1,minWidth:0}}>
+        {title&&<div style={{fontSize:12,fontWeight:600,color:T.ink1,marginBottom:4}}>{title}</div>}
+        {defRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>vs</span>
+          <CompoChips compo={defRaw} size={20}/>
+        </div>}
+        {offRaw&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <CompoChips compo={offRaw} size={20}/>
+        </div>}
+      </div>
       <button onClick={onClose} style={{background:"none",border:"none",
-        color:T.ink3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px"}}>×</button>
+        color:T.ink3,cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px",flexShrink:0}}>×</button>
     </div>
     <div style={{overflowY:"auto",padding:"8px 0"}}>
       {items.map((o,i)=>(
@@ -1219,7 +1229,7 @@ export default function App(){
   const [tab,setTab]=useState("counterpick");
   const [data,setData]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [liveGuild]=useState("");
+  const liveGuild="";
   const [importMsg,setImportMsg]=useState("");
   const fileRef=useRef();
 
@@ -1331,9 +1341,11 @@ function CounterpickPage({data,liveGuild}){
    ANALYSE PAGE
 ══════════════════════════════════════════════════════════════════════════ */
 function AnalysePage({data}){
+  const [globalN,setGlobalN]=useState(1250);
   const [offN,setOffN]=useState(1250);
   const [defN,setDefN]=useState(1250);
   const [worstN,setWorstN]=useState(1250);
+  const setAllN=v=>{setGlobalN(v);setOffN(v);setDefN(v);setWorstN(v);};
   const [openDef,setOpenDef]=useState(null);
   const [panel,setPanel]=useState(null);
 
@@ -1354,7 +1366,7 @@ function AnalysePage({data}){
     });
     const items=Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total),reliability:wilson(x.wins,x.total)}))
       .sort((a,b)=>b.reliability-a.reliability);
-    setPanel({title:`Offenses vs : ${item.name}`,items});
+    setPanel({title:null,defName:item.name,defRaw:item.rawName||item.name,items});
   },[data]);
 
   const handleOffClick=useCallback(item=>{
@@ -1364,11 +1376,20 @@ function AnalysePage({data}){
       map[d.defense].total++;if(d.victoire)map[d.defense].wins++;else map[d.defense].losses++;
     });
     const items=Object.values(map).map(x=>({...x,wr:wr(x.wins,x.total)})).sort((a,b)=>b.total-a.total);
-    setPanel({title:`Défenses rencontrées avec : ${item.name}`,items});
+    setPanel({title:null,offName:item.name,offRaw:item.rawName||item.name,items});
   },[data]);
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
-    {panel&&<><Overlay onClick={()=>setPanel(null)}/><OffensesPanel title={panel.title} items={panel.items} onClose={()=>setPanel(null)}/></>}
+    {panel&&<><Overlay onClick={()=>setPanel(null)}/><OffensesPanel title={panel.title} defRaw={panel.defRaw} offRaw={panel.offRaw} items={panel.items} onClose={()=>setPanel(null)}/></>}
+
+    {/* Curseur global */}
+    <div style={{background:T.s2,border:`1px solid ${T.line}`,borderRadius:10,
+      padding:"10px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,color:T.ink2,fontWeight:600}}>Profondeur globale</span>
+      <SliderControl value={globalN} onChange={setAllN} max={data.length||2000}/>
+      <span style={{fontSize:10,color:T.ink3,fontVariantNumeric:"tabular-nums"}}>
+        {globalN} derniers combats — ajuste individuellement avec chaque curseur</span>
+    </div>
 
     <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <Card>
@@ -1748,8 +1769,10 @@ function CombatCards({rows}){
               </span>
             </div>
             <CompoChips compo={d.offenseRaw||d.offense} size={18}/>
-            <div style={{fontSize:11,color:T.ink3,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:3}}>vs {d.defense}</div>
+            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:4,flexWrap:"wrap"}}>
+              <span style={{fontSize:10,color:T.ink3,flexShrink:0}}>vs</span>
+              <CompoChips compo={d.defenseRaw||d.defense} size={16}/>
+            </div>
             {isOpen&&(
               <div style={{marginTop:10,paddingTop:10,
                 borderTop:`1px solid ${T.line}`,display:"flex",flexDirection:"column",gap:6}}>
